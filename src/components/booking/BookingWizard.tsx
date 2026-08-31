@@ -11,6 +11,7 @@ import {
   formatTime,
   minutesToTime,
   timeToMinutes,
+  whatsappLinkWithText,
 } from "@/lib/utils";
 
 type Props = {
@@ -40,7 +41,7 @@ export default function BookingWizard({ tenant, services, staff, serviceStaff, h
   const [booked, setBooked] = useState<BookedSlot[]>([]);
   const [now, setNow] = useState<number>(() => Date.now());
 
-  const [{ ok, bookingId, message, errors }, formAction, pending] = useActionState<
+  const [{ ok, bookingId, message, errors, deposit }, formAction, pending] = useActionState<
     ReservaState,
     FormData
   >(reservar, {});
@@ -144,6 +145,18 @@ export default function BookingWizard({ tenant, services, staff, serviceStaff, h
   };
 
   if (ok && bookingId) {
+    const staffName = staff.find((s) => s.id === staffId)?.name ?? "";
+    const msg = [
+      `¡Turno reservado en ${tenant.name}!`,
+      `${service?.name ?? ""}${staffName ? ` con ${staffName}` : ""}`,
+      `El ${selectedDate}${selectedTime ? ` a las ${formatTime(selectedTime)}` : ""}`,
+      `Referencia: ${bookingId.slice(0, 8)}`,
+      deposit
+        ? `Seña pendiente: ${formatCurrency(deposit.amount)}`
+        : "Sin seña.",
+    ].join("\n");
+    const whatsappMsg = whatsappLinkWithText(tenant.phone, msg);
+
     return (
       <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-sm">
         <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-50 text-emerald-600">
@@ -162,6 +175,29 @@ export default function BookingWizard({ tenant, services, staff, serviceStaff, h
           Te vamos a contactar por WhatsApp para confirmar. Referencia:{" "}
           <span className="font-mono">{bookingId.slice(0, 8)}</span>
         </p>
+        {whatsappMsg && (
+          <a
+            href={whatsappMsg}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-5 inline-flex items-center justify-center gap-2 rounded-xl bg-[#25D366] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#1fb958]"
+          >
+            <svg viewBox="0 0 24 24" fill="currentColor" className="h-5 w-5">
+              <path d="M12.04 2C6.56 2 2.08 6.48 2.08 11.96c0 2.06.65 3.98 1.78 5.57L2.08 22l4.62-1.73a9.85 9.85 0 0 0 5.34 1.56c5.48 0 9.88-4.48 9.88-9.96C21.92 6.48 17.52 2 12.04 2Zm0 18.18c-1.7 0-3.36-.46-4.8-1.33l-.34-.2-2.84 1.06 1.1-2.72-.22-.36a7.9 7.9 0 0 1-1.28-4.35c0-4.4 3.58-7.98 7.97-7.98 2.13 0 4.13.83 5.63 2.34a7.9 7.9 0 0 1 2.34 5.63c0 4.4-3.6 8-8.56 8Zm4.6-5.98c-.25-.13-1.49-.74-1.72-.82-.23-.08-.4-.12-.57.13-.17.25-.65.82-.8.98-.15.17-.3.19-.55.06-.25-.12-1.06-.39-2.02-1.25-.75-.67-1.25-1.49-1.4-1.74-.14-.25-.02-.39.11-.51.12-.11.25-.28.38-.42.12-.14.16-.24.25-.4.08-.17.04-.31-.02-.43-.06-.12-.56-1.36-.78-1.86-.2-.48-.41-.4-.56-.41h-.48c-.17 0-.44.06-.66.31-.22.25-.86.84-.86 2.05 0 1.21.88 2.38 1 2.54.13.17 1.74 2.66 4.21 3.73.59.25 1.05.4 1.41.51.59.19 1.13.16 1.55.1.48-.07 1.49-.61 1.7-1.2.21-.59.21-1.09.15-1.2-.06-.1-.23-.17-.48-.3Z" />
+            </svg>
+            Confirmar por WhatsApp
+          </a>
+        )}
+        {deposit && (
+          <div className="mx-auto mt-5 max-w-sm rounded-xl bg-amber-50 px-4 py-3 text-left text-sm">
+            <p className="font-semibold text-amber-800">Seña a abonar</p>
+            <p className="mt-1 text-amber-700">
+              Este servicio requiere una seña de{" "}
+              <span className="font-semibold">{formatCurrency(deposit.amount)}</span>.
+              Podés pagarla en el local al confirmar.
+            </p>
+          </div>
+        )}
       </div>
     );
   }

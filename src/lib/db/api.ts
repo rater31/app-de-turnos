@@ -15,6 +15,8 @@ import type {
   DBBusinessHours,
   DBClient,
   DBProfile,
+  DBPayment,
+  DBSellerAccount,
   DBService,
   DBServiceStaff,
   DBStaffMember,
@@ -279,7 +281,7 @@ export function getBookedSlotRows(tenantId: string, staffId: string, date: strin
 }
 
 export type CreateBookingResult =
-  | { ok: true; bookingId: string }
+  | { ok: true; bookingId: string; deposit?: { amount: number; method: string } }
   | { ok: false; message: string };
 
 export function createPublicBooking(input: {
@@ -363,9 +365,29 @@ export function createPublicBooking(input: {
     created_at: nowIso(),
   };
   db.bookings.push(booking);
+
+  const depositAmount = service.requires_deposit && service.deposit_amount
+    ? service.deposit_amount
+    : null;
+  if (depositAmount !== null) {
+    const payment: DBPayment = {
+      id: newId(),
+      tenant_id: tenant.id,
+      booking_id: booking.id,
+      amount: depositAmount,
+      method: "local",
+      status: "pending",
+      mp_payment_id: null,
+      created_at: nowIso(),
+    };
+    db.payments.push(payment);
+  }
+
   saveDb(db);
 
-  return { ok: true, bookingId: booking.id };
+  return depositAmount !== null && depositAmount > 0
+    ? { ok: true, bookingId: booking.id, deposit: { amount: depositAmount, method: "local" } }
+    : { ok: true, bookingId: booking.id };
 }
 
 // ---------------------------------------------------------------------------
@@ -724,4 +746,58 @@ function serviceLink(tenantId: string, serviceId: string, staffId: string): DBSe
     staff_id: staffId,
     created_at: nowIso(),
   };
+}
+
+export function getSellerAccount(tenantId: string): DBSellerAccount | null {
+  const db = loadDb();
+  return db.seller_accounts.find((a) => a.tenant_id === tenantId) ?? null;
+}
+
+export function saveSellerAccount(
+  tenantId: string,
+  data: {
+    mp_user_id: string;
+    access_token: string;
+    refresh_token: string;
+    commission_pct?: number;
+  },
+): DBSellerAccount {
+  const db = loadDb();
+  const existing = db.seller_accounts.find((a) => a.tenant_id === tenantId);
+
+  if (existing) {
+    existing.mp_user_id = data.mp_user_id;
+    existing.access_token = data.access_token;
+    existing.refresh_token = data.refresh_token;
+    if (data.commission_pct !== undefined) existing.commission_pct = data.commission_pct;
+    existing.connected_at = nowIso();
+    saveDb(db);
+    return existing;
+  }
+
+  const account: DBSellerAccount = {
+    id: newId(),
+    tenant_id: tenantId,
+    mp_user_id: data.mp_user_id,
+    access_token: data.access_token,
+    refresh_token: data.refresh_token,
+    commission_pct: data.commission_pct ?? 5,
+    connected_at: nowIso(),
+  };
+  db.seller_accounts.push(account);
+  saveDb(db);
+  return account;
+}
+
+export function deleteSellerAccount(tenantId: string) {
+  const db = loadDb();
+  db.seller_accounts = db.seller_accounts.filter((a) => a.tenant_id !== tenantId);
+  saveDb(db);
+}
+
+export function listPayments(tenantId: string): DBPayment[] {
+  const db = loadDb();
+  return db.payments
+    .filter((p) => p.tenant_id === tenantId)
+    .sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
 }

@@ -17,6 +17,7 @@ const ReservaSchema = z.object({
 export type ReservaState = {
   ok?: boolean;
   bookingId?: string;
+  deposit?: { amount: number; method: string };
   message?: string;
   errors?: Record<string, string[]>;
 };
@@ -55,5 +56,9 @@ export async function reservar(
     return { message: result.message };
   }
 
-  return { ok: true, bookingId: result.bookingId };
+  return {
+    ok: true,
+    bookingId: result.bookingId,
+    deposit: result.deposit,
+  };
 }

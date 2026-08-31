@@ -10,6 +10,7 @@ import {
   createStaff,
   deleteBooking,
   deleteHours,
+  deleteSellerAccount,
   deleteService,
   setServiceActive,
   setStaffActive,
@@ -300,4 +301,15 @@ export async function actualizarNegocio(
 
   revalidatePath("/panel/ajustes");
   return { ok: true };
+}
+
+export type MercadoPagoState = { ok?: boolean; message?: string };
+
+export async function desconectarMercadoPago(
+  _prev: MercadoPagoState | undefined,
+): Promise<MercadoPagoState> {
+  const user = await requireUser();
+  deleteSellerAccount(user.tenant.id);
+  revalidatePath("/panel/ajustes");
+  return { ok: true, message: "MercadoPago desconectado." };
 }

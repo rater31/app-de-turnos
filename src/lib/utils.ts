@@ -79,3 +79,9 @@ export function whatsappLink(phone: string | null): string | null {
   }
   return `https://wa.me/${number}`;
 }
+
+export function whatsappLinkWithText(phone: string | null, text: string): string | null {
+  const base = whatsappLink(phone);
+  if (!base) return null;
+  return `${base}?text=${encodeURIComponent(text)}`;
+}

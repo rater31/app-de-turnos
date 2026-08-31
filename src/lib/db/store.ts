@@ -20,6 +20,8 @@ export const EMPTY_DB: DB = {
   clients: [],
   bookings: [],
   subscriptions: [],
+  seller_accounts: [],
+  payments: [],
 };
 
 export function loadDb(): DB {

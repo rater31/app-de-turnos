@@ -90,6 +90,29 @@ export type DBSubscription = {
   created_at: string;
 };
 
+export type DBSellerAccount = {
+  id: string;
+  tenant_id: string;
+  mp_user_id: string;
+  access_token: string | null;
+  refresh_token: string | null;
+  commission_pct: number;
+  connected_at: string;
+};
+
+export type DBPaymentStatus = "pending" | "paid" | "refunded" | "failed";
+
+export type DBPayment = {
+  id: string;
+  tenant_id: string;
+  booking_id: string | null;
+  amount: number;
+  method: "local" | "mercado_pago";
+  status: DBPaymentStatus;
+  mp_payment_id: string | null;
+  created_at: string;
+};
+
 export type DB = {
   users: DBUser[];
   profiles: DBProfile[];
@@ -101,4 +124,6 @@ export type DB = {
   clients: DBClient[];
   bookings: DBBooking[];
   subscriptions: DBSubscription[];
+  seller_accounts: DBSellerAccount[];
+  payments: DBPayment[];
 };

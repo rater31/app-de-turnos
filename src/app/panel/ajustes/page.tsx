@@ -1,12 +1,18 @@
 import NegocioForm from "@/components/panel/NegocioForm";
+import MercadoPagoConnector from "@/components/panel/MercadoPagoConnector";
 import { requireUser } from "@/lib/auth";
-import { getSubscription } from "@/lib/db/api";
+import { getSellerAccount, getSubscription } from "@/lib/db/api";
 
 export const metadata = { title: "Ajustes" };
 
-export default async function AjustesPage() {
+type SearchParams = Promise<{ mp?: string }>;
+
+export default async function AjustesPage({ searchParams }: { searchParams: SearchParams }) {
+  const { mp } = await searchParams;
   const user = await requireUser();
   const subscription = getSubscription(user.tenant.id);
+  const sellerAccount = getSellerAccount(user.tenant.id);
+  const mpStatus = mp === "ok" ? ("ok" as const) : mp === "error" ? ("error" as const) : null;
 
   return (
     <div className="max-w-2xl space-y-6">
@@ -54,6 +60,12 @@ export default async function AjustesPage() {
           </a>
         </div>
       </div>
+
+      <MercadoPagoConnector
+        account={sellerAccount}
+        connectUrl="/api/mercadopago/connect"
+        mpStatus={mpStatus}
+      />
 
       <div className="rounded-2xl border border-slate-200 bg-white p-5">
         <h2 className="text-sm font-semibold text-slate-900">Plan</h2>
