@@ -14,12 +14,17 @@ const STATUS_LABEL: Record<string, { label: string; cls: string }> = {
 
 export default async function PanelHome() {
   const user = await requireUser();
-  const list = listBookings(user.tenant.id);
+  const [list, countServices, countStaff, countClients] = await Promise.all([
+    listBookings(user.tenant.id),
+    countRows(user.tenant.id, "services"),
+    countRows(user.tenant.id, "staff_members"),
+    countRows(user.tenant.id, "clients"),
+  ]);
 
   const cards = [
-    { label: "Servicios", value: countRows(user.tenant.id, "services"), href: "/panel/servicios" },
-    { label: "Profesionales", value: countRows(user.tenant.id, "staff_members"), href: "/panel/profesionales" },
-    { label: "Clientes", value: countRows(user.tenant.id, "clients"), href: "/panel/clientes" },
+    { label: "Servicios", value: countServices, href: "/panel/servicios" },
+    { label: "Profesionales", value: countStaff, href: "/panel/profesionales" },
+    { label: "Clientes", value: countClients, href: "/panel/clientes" },
     { label: "Próximos turnos", value: list.filter((b) => b.status === "pending" || b.status === "confirmed").length, href: "/panel" },
   ];
 

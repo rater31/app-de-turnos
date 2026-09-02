@@ -11,5 +11,5 @@ export async function GET(request: Request) {
     return NextResponse.json({ slots: [] });
   }
 
-  return NextResponse.json({ slots: getBookedSlotRows(tenant, staff, date) });
+  return NextResponse.json({ slots: await getBookedSlotRows(tenant, staff, date) });
 }

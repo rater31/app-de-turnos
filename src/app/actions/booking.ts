@@ -41,7 +41,7 @@ export async function reservar(
     return { errors: parsed.error.flatten().fieldErrors };
   }
 
-  const result = createPublicBooking({
+  const result = await createPublicBooking({
     slug: parsed.data.slug,
     serviceId: parsed.data.serviceId,
     staffId: parsed.data.staffId,

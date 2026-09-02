@@ -31,7 +31,7 @@ export const getUser = cache(async (): Promise<SessionUser | null> => {
   const userId = await getSessionUserId();
   if (!userId) return null;
 
-  const found = getUserWithTenant(userId);
+  const found = await getUserWithTenant(userId);
   if (!found) return null;
 
   const { user, profile, tenant } = found;

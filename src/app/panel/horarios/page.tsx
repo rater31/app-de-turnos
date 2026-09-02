@@ -10,8 +10,10 @@ const DAY_LABELS = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viern
 
 export default async function HorariosPage() {
   const user = await requireUser();
-  const hours = listHours(user.tenant.id);
-  const staff = listStaffOptions(user.tenant.id);
+  const [hours, staff] = await Promise.all([
+    listHours(user.tenant.id),
+    listStaffOptions(user.tenant.id),
+  ]);
 
   const byDay = buildHoursByDay(hours);
   const staffMap = new Map(staff.map((s) => [s.id, s.name]));

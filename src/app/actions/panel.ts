@@ -25,13 +25,13 @@ import {
 
 export async function cambiarEstadoTurno(bookingId: string, status: string) {
   const user = await requireUser();
-  updateBookingStatus(user.tenant.id, bookingId, status);
+  await updateBookingStatus(user.tenant.id, bookingId, status);
   revalidatePath("/panel");
 }
 
 export async function eliminarTurno(bookingId: string) {
   const user = await requireUser();
-  deleteBooking(user.tenant.id, bookingId);
+  await deleteBooking(user.tenant.id, bookingId);
   revalidatePath("/panel");
 }
 
@@ -70,7 +70,7 @@ export async function crearServicio(
   const user = await requireUser();
   const staffIds = formData.getAll("staffIds").map(String);
 
-  const result = createService({
+  const result = await createService({
     tenantId: user.tenant.id,
     name: parsed.data.name,
     description: parsed.data.description,
@@ -114,7 +114,7 @@ export async function actualizarServicio(
   const user = await requireUser();
   const staffIds = formData.getAll("staffIds").map(String);
 
-  const result = updateService(user.tenant.id, id, {
+  const result = await updateService(user.tenant.id, id, {
     name: parsed.data.name,
     description: parsed.data.description,
     durationMinutes: parsed.data.duration_minutes,
@@ -137,13 +137,13 @@ export async function actualizarServicio(
 
 export async function toggleServicio(id: string, active: boolean) {
   const user = await requireUser();
-  setServiceActive(user.tenant.id, id, active);
+  await setServiceActive(user.tenant.id, id, active);
   revalidatePath("/panel/servicios");
 }
 
 export async function eliminarServicio(id: string) {
   const user = await requireUser();
-  deleteService(user.tenant.id, id);
+  await deleteService(user.tenant.id, id);
   revalidatePath("/panel/servicios");
 }
 
@@ -169,7 +169,7 @@ export async function crearStaff(
   if (!parsed.success) return { errors: parsed.error.flatten().fieldErrors };
 
   const user = await requireUser();
-  const result = createStaff(user.tenant.id, parsed.data.name, parsed.data.color);
+  const result = await createStaff(user.tenant.id, parsed.data.name, parsed.data.color);
   if (!result.ok) return { message: result.message };
 
   revalidatePath("/panel/profesionales");
@@ -178,7 +178,7 @@ export async function crearStaff(
 
 export async function toggleStaff(id: string, active: boolean) {
   const user = await requireUser();
-  setStaffActive(user.tenant.id, id, active);
+  await setStaffActive(user.tenant.id, id, active);
   revalidatePath("/panel/profesionales");
 }
 
@@ -213,7 +213,7 @@ export async function guardarHorario(
 
   const user = await requireUser();
   for (const day of day_of_week) {
-    const result = createHours({
+    const result = await createHours({
       tenantId: user.tenant.id,
       staffId: staff_id || null,
       dayOfWeek: day,
@@ -229,7 +229,7 @@ export async function guardarHorario(
 
 export async function eliminarHorario(id: string) {
   const user = await requireUser();
-  deleteHours(user.tenant.id, id);
+  await deleteHours(user.tenant.id, id);
   revalidatePath("/panel/horarios");
 }
 
@@ -257,7 +257,7 @@ export async function crearCliente(
   if (!parsed.success) return { errors: parsed.error.flatten().fieldErrors };
 
   const user = await requireUser();
-  createClient(user.tenant.id, parsed.data.name, parsed.data.phone || null, parsed.data.email || null);
+  await createClient(user.tenant.id, parsed.data.name, parsed.data.phone || null, parsed.data.email || null);
 
   revalidatePath("/panel/clientes");
   return { ok: true };
@@ -291,7 +291,7 @@ export async function actualizarNegocio(
   if (!parsed.success) return { errors: parsed.error.flatten().fieldErrors };
 
   const user = await requireUser();
-  updateTenant(user.tenant.id, {
+  await updateTenant(user.tenant.id, {
     name: parsed.data.name,
     description: parsed.data.description || null,
     phone: parsed.data.phone || null,
@@ -309,7 +309,7 @@ export async function desconectarMercadoPago(
   _prev: MercadoPagoState | undefined,
 ): Promise<MercadoPagoState> {
   const user = await requireUser();
-  deleteSellerAccount(user.tenant.id);
+  await deleteSellerAccount(user.tenant.id);
   revalidatePath("/panel/ajustes");
   return { ok: true, message: "MercadoPago desconectado." };
 }

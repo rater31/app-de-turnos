@@ -33,6 +33,22 @@ as $$
   where id = auth.uid()
 $$;
 
+-- ¿el usuario autenticado es superadmin?
+create or replace function public.is_superadmin()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select coalesce(
+    (select role = 'superadmin'
+     from public.profiles
+     where id = auth.uid()),
+    false
+  )
+$$;
+
 -- Valida que no exista solapamiento de turnos por profesional
 create or replace function public.prevent_overlap()
 returns trigger
@@ -94,9 +110,11 @@ create table if not exists public.tenants (
 -- Perfil ligado 1:1 al usuario de Supabase Auth
 create table if not exists public.profiles (
   id uuid primary key references auth.users (id) on delete cascade,
-  tenant_id uuid not null references public.tenants (id) on delete cascade,
+  tenant_id uuid references public.tenants (id) on delete cascade, -- null = superadmin global o pendiente de alta
   full_name text not null,
-  role text not null default 'owner' check (role in ('owner', 'staff')),
+  email text,
+  phone text,
+  role text not null default 'owner' check (role in ('owner', 'staff', 'superadmin')),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -276,6 +294,9 @@ create policy profiles_insert on public.profiles
 drop policy if exists profiles_update on public.profiles;
 create policy profiles_update on public.profiles
   for update using (id = auth.uid()) with check (id = auth.uid());
+drop policy if exists profiles_select_superadmin on public.profiles;
+create policy profiles_select_superadmin on public.profiles
+  for select using (public.is_superadmin());
 
 -- Tenants: lectura pública necesaria para la página de reservas; edición del dueño.
 drop policy if exists tenants_select_public on public.tenants;
@@ -284,12 +305,16 @@ create policy tenants_select_public on public.tenants
 drop policy if exists tenants_update_own on public.tenants;
 create policy tenants_update_own on public.tenants
   for update using (id = public.current_tenant_id()) with check (id = public.current_tenant_id());
+drop policy if exists tenants_all_superadmin on public.tenants;
+create policy tenants_all_superadmin on public.tenants
+  for all using (public.is_superadmin()) with check (public.is_superadmin());
 
 -- Servicios / profesionales / horarios: lectura pública (reservas), edición por tenant.
 do $$
 begin
   execute 'create policy services_select_public on public.services for select using (true)';
   execute 'create policy services_write_tenant on public.services for all using (tenant_id = public.current_tenant_id()) with check (tenant_id = public.current_tenant_id())';
+  execute 'create policy services_all_superadmin on public.services for all using (public.is_superadmin()) with check (public.is_superadmin())';
 exception when duplicate_object then null;
 end $$;
 
@@ -297,6 +322,7 @@ do $$
 begin
   execute 'create policy staff_select_public on public.staff_members for select using (true)';
   execute 'create policy staff_write_tenant on public.staff_members for all using (tenant_id = public.current_tenant_id()) with check (tenant_id = public.current_tenant_id())';
+  execute 'create policy staff_all_superadmin on public.staff_members for all using (public.is_superadmin()) with check (public.is_superadmin())';
 exception when duplicate_object then null;
 end $$;
 
@@ -304,6 +330,7 @@ do $$
 begin
   execute 'create policy hours_select_public on public.business_hours for select using (true)';
   execute 'create policy hours_write_tenant on public.business_hours for all using (tenant_id = public.current_tenant_id()) with check (tenant_id = public.current_tenant_id())';
+  execute 'create policy hours_all_superadmin on public.business_hours for all using (public.is_superadmin()) with check (public.is_superadmin())';
 exception when duplicate_object then null;
 end $$;
 
@@ -329,6 +356,9 @@ create policy service_staff_all on public.service_staff
       where st.id = staff_id and st.tenant_id = public.current_tenant_id()
     )
   );
+drop policy if exists service_staff_all_superadmin on public.service_staff;
+create policy service_staff_all_superadmin on public.service_staff
+  for all using (public.is_superadmin()) with check (public.is_superadmin());
 
 -- Clientes: SOLO el tenant los ve; el alta se hace por server action (service role).
 drop policy if exists clients_select_tenant on public.clients;
@@ -337,6 +367,9 @@ create policy clients_select_tenant on public.clients
 drop policy if exists clients_write_tenant on public.clients;
 create policy clients_write_tenant on public.clients
   for all using (tenant_id = public.current_tenant_id()) with check (tenant_id = public.current_tenant_id());
+drop policy if exists clients_all_superadmin on public.clients;
+create policy clients_all_superadmin on public.clients
+  for all using (public.is_superadmin()) with check (public.is_superadmin());
 
 -- Turnos: SOLO el tenant los ve/edita. El alta pública de turnos se hace por
 -- server action (service role) con verificación de disponibilidad.
@@ -346,6 +379,9 @@ create policy bookings_select_tenant on public.bookings
 drop policy if exists bookings_write_tenant on public.bookings;
 create policy bookings_write_tenant on public.bookings
   for all using (tenant_id = public.current_tenant_id()) with check (tenant_id = public.current_tenant_id());
+drop policy if exists bookings_all_superadmin on public.bookings;
+create policy bookings_all_superadmin on public.bookings
+  for all using (public.is_superadmin()) with check (public.is_superadmin());
 
 -- Pagos / cuentas MP / recordatorios / suscripciones: exclusivos del tenant.
 drop policy if exists payments_all on public.payments;
@@ -360,6 +396,18 @@ create policy reminders_all on public.reminders
 drop policy if exists subscriptions_all on public.subscriptions;
 create policy subscriptions_all on public.subscriptions
   for all using (tenant_id = public.current_tenant_id()) with check (tenant_id = public.current_tenant_id());
+drop policy if exists payments_all_superadmin on public.payments;
+create policy payments_all_superadmin on public.payments
+  for all using (public.is_superadmin()) with check (public.is_superadmin());
+drop policy if exists seller_accounts_all_superadmin on public.seller_accounts;
+create policy seller_accounts_all_superadmin on public.seller_accounts
+  for all using (public.is_superadmin()) with check (public.is_superadmin());
+drop policy if exists reminders_all_superadmin on public.reminders;
+create policy reminders_all_superadmin on public.reminders
+  for all using (public.is_superadmin()) with check (public.is_superadmin());
+drop policy if exists subscriptions_all_superadmin on public.subscriptions;
+create policy subscriptions_all_superadmin on public.subscriptions
+  for all using (public.is_superadmin()) with check (public.is_superadmin());
 
 -- ----------------------------------------------------------------------------
 -- Trigger automático: al crear un perfil, crea su staff_member por defecto

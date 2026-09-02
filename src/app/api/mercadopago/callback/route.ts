@@ -16,7 +16,7 @@ export async function GET(request: Request) {
   const userId = await getSessionUserId();
   if (!userId) return NextResponse.redirect(`${appUrl}/login`);
 
-  const userWithTenant = getUserWithTenant(userId);
+  const userWithTenant = await getUserWithTenant(userId);
   if (!userWithTenant?.tenant)
     return NextResponse.redirect(`${appUrl}/panel/ajustes?mp=error`);
 
@@ -57,7 +57,7 @@ export async function GET(request: Request) {
       user_id: string;
     };
 
-    saveSellerAccount(userWithTenant.tenant.id, {
+    await saveSellerAccount(userWithTenant.tenant.id, {
       mp_user_id: String(data.user_id),
       access_token: data.access_token,
       refresh_token: data.refresh_token,

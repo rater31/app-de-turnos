@@ -160,27 +160,34 @@ local/efectivo y no interviene MP.
 | **3. Recordatorios** | WhatsApp + email automáticos | Reduce el dolor #1: los no-shows |
 | **4. Marketplace** | Señas online + split de pagos (MP) | Monetización por reserva |
 
-## 9. Estado actual del código (backend local)
+## 9. Estado actual del código (backend)
 
-Para probar el MVP **sin crear el proyecto de Supabase**, el acceso a datos vive
-detrás de un backend local en JSON:
+El acceso a datos vive en Supabase (PostgreSQL + RLS). El MVP está conectado:
 
-- `src/lib/db/store.ts`: lee/escribe `data/db.json` (en disco, runtime de Node).
-- `src/lib/db/api.ts`: toda la lógica de datos (auth local por cookie `tf_session`,
-  onboarding, servicios, profesionales, horarios, clientes, turnos, disponibilidad
-  anti-solapamiento, cambios de estado).
-- `src/lib/session.ts`: sesión por cookie (mock).
-- El resto de la app (acciones, páginas, rutas) **no conoce** a Supabase: usa ese
-  módulo de datos.
+- `src/lib/db/api.ts`: toda la lógica de datos contra Supabase (auth real con
+  Supabase Auth, onboarding, servicios, profesionales, horarios, clientes,
+  turnos, disponibilidad anti-solapamiento, cambios de estado, superadmin,
+  cuentas MP y pagos). Todas las funciones son `async`.
+- `src/lib/session.ts`: sesión manejada por Supabase Auth (`@supabase/ssr`).
+- `src/lib/supabase/*`: clientes (`server`, `client`, `admin` con service role).
+- `supabase/schema.sql`: esquema + RLS multi-tenant (ya incluye rol `superadmin`
+  y `email`/`phone` en `profiles`).
+- `supabase/seed.mjs`: migra los datos de prueba de `data/db.json` a Supabase.
 
-La contraseña se hashea con SHA-256 (mock, NO producción). `data/db.json` está
-en `.gitignore`.
+**Pasos para levantar contra Supabase:**
+1. Copiar `.env.local.example` a `.env.local` y completar claves del proyecto.
+2. Ejecutar `supabase/schema.sql` en el SQL Editor de Supabase.
+3. `node supabase/seed.mjs` (opcional, si querés migrar los datos de prueba).
+   Las contraseñas originales no se recuperan: el seed crea usuarios con
+   `SEED_PASSWORD` (default `demo12345`).
 
-**Migración a Supabase:** reimplementar los métodos de `src/lib/db/api.ts` contra
-`@/lib/supabase/*` (ya quedan los clients), reemplazar `src/lib/session.ts` por
-Supabase Auth y volver a habilitar RLS con `supabase/schema.sql`. Las interfaces
-(páginas, acciones, componentes) no cambian.
+**Notas:**
+- La contraseña y la auth las maneja Supabase Auth (ya no hay hash local).
+- Los turnos se guardan como `timestamp` local en `bookings`; la app trabaja con
+  strings `"YYYY-MM-DD HH:MM:SS"` que son compatibles.
+- El alta pública de turnos (cliente sin cuenta) usa el client con `service_role`
+  porque el cliente final no tiene sesión; el trigger `prevent_overlap` evita
+  la doble reserva a nivel de base de datos.
 
-Seed de prueba para explorar la app ya cargado en `data/db.json`:
-`demo@turnofacil.local` / `demo12345` (negocio "Barbería Demo", web `/barberia-demo`).
-Para empezar de cero, borrar `data/db.json` (y registrarse en `/registro`).
+**Faltante de Fases 2-4:** suscripción (cobro con MP Planes), recordatorios
+automáticos (WhatsApp/email), y Marketplace con split de pagos. Ver roadmap §8.

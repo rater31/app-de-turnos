@@ -5,7 +5,7 @@ import { getPublicBookingData } from "@/lib/db/api";
 export default async function SlugPage(props: PageProps<"/[slug]">) {
   const { slug } = await props.params;
 
-  const data = getPublicBookingData(slug);
+  const data = await getPublicBookingData(slug);
   if (!data) {
     notFound();
   }

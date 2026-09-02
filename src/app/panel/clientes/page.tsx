@@ -7,7 +7,7 @@ export const metadata = { title: "Clientes" };
 
 export default async function ClientesPage() {
   const user = await requireUser();
-  const clients = listClients(user.tenant.id);
+  const clients = await listClients(user.tenant.id);
 
   return (
     <div className="space-y-6">

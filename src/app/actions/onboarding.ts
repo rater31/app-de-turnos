@@ -2,8 +2,8 @@
 
 import { redirect } from "next/navigation";
 import { z } from "zod";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { onboardTenant } from "@/lib/db/api";
-import { setSession } from "@/lib/session";
 
 const OnboardingSchema = z.object({
   businessName: z.string().min(2, "El nombre del negocio es obligatorio"),
@@ -36,12 +36,36 @@ export async function onboarding(
 
   const { businessName, fullName, email, password, phone } = parsed.data;
 
-  const result = onboardTenant({ businessName, fullName, email, password, phone });
+  const supabase = createSupabaseServerClient();
+  const { data, error } = await supabase.auth.signUp({
+    email,
+    password,
+    options: { data: { full_name: fullName } },
+  });
+
+  if (error) {
+    return { message: error.message };
+  }
+  if (!data.user) {
+    return { message: "No se pudo crear la cuenta. Intentá de nuevo." };
+  }
+
+  const result = await onboardTenant({ userId: data.user.id, businessName, fullName, email, phone });
   if (!result.ok) {
     return { message: result.message };
   }
 
-  // Auto-login para que entre directo al panel.
-  await setSession(result.userId);
+  // Si la confirmación de email está desactivada, signUp devuelve sesión y ya
+  // quedó logueado. Si no, intentamos iniciar sesión; si requiere confirmar,
+  // avisamos.
+  if (!data.session) {
+    const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+    if (signInError) {
+      return {
+        message: "Cuenta creada. Verificá tu email y luego iniciá sesión en /login.",
+      };
+    }
+  }
+
   redirect("/panel");
 }

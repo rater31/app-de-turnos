@@ -10,8 +10,10 @@ type SearchParams = Promise<{ mp?: string }>;
 export default async function AjustesPage({ searchParams }: { searchParams: SearchParams }) {
   const { mp } = await searchParams;
   const user = await requireUser();
-  const subscription = getSubscription(user.tenant.id);
-  const sellerAccount = getSellerAccount(user.tenant.id);
+  const [subscription, sellerAccount] = await Promise.all([
+    getSubscription(user.tenant.id),
+    getSellerAccount(user.tenant.id),
+  ]);
   const mpStatus = mp === "ok" ? ("ok" as const) : mp === "error" ? ("error" as const) : null;
 
   return (

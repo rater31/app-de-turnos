@@ -6,7 +6,7 @@ export const metadata = { title: "Negocios" };
 
 export default async function AdminPage() {
   await requireSuperAdmin();
-  const tenants = listTenants();
+  const tenants = await listTenants();
 
   return (
     <div className="space-y-6">
