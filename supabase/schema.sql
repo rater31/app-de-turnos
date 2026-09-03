@@ -20,73 +20,6 @@ begin
   return new;
 end $$;
 
--- tenant del usuario autenticado actual
-create or replace function public.current_tenant_id()
-returns uuid
-language sql
-stable
-security definer
-set search_path = public
-as $$
-  select tenant_id
-  from public.profiles
-  where id = auth.uid()
-$$;
-
--- ¿el usuario autenticado es superadmin?
-create or replace function public.is_superadmin()
-returns boolean
-language sql
-stable
-security definer
-set search_path = public
-as $$
-  select coalesce(
-    (select role = 'superadmin'
-     from public.profiles
-     where id = auth.uid()),
-    false
-  )
-$$;
-
--- Valida que no exista solapamiento de turnos por profesional
-create or replace function public.prevent_overlap()
-returns trigger
-language plpgsql
-as $$
-begin
-  if exists (
-    select 1
-    from public.bookings b
-    where b.tenant_id = new.tenant_id
-      and b.staff_id = new.staff_id
-      and b.status in ('pending', 'confirmed', 'completed')
-      and b.starts_at < new.ends_at
-      and b.ends_at > new.starts_at
-  ) then
-    raise exception 'El profesional ya tiene un turno en ese rango horario';
-  end if;
-  return new;
-end $$;
-
--- Exposición acotada de turnos ocupados (solo para disponibilidad pública)
-create or replace function public.booked_slots(p_tenant uuid, p_staff uuid, p_date date)
-returns table (starts_at timestamp, ends_at timestamp)
-language sql
-stable
-security definer
-set search_path = public
-as $$
-  select b.starts_at, b.ends_at
-  from public.bookings b
-  where b.tenant_id = p_tenant
-    and b.staff_id = p_staff
-    and b.status in ('pending', 'confirmed', 'completed')
-    and b.starts_at::date = p_date
-$$;
-
-grant execute on function public.booked_slots(uuid, uuid, date) to anon, authenticated;
-
 -- ----------------------------------------------------------------------------
 -- TENANTS (cada negocio es un tenant aislado)
 -- ----------------------------------------------------------------------------
@@ -118,6 +51,35 @@ create table if not exists public.profiles (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+-- tenant del usuario autenticado actual
+create or replace function public.current_tenant_id()
+returns uuid
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select tenant_id
+  from public.profiles
+  where id = auth.uid()
+$$;
+
+-- ¿el usuario autenticado es superadmin?
+create or replace function public.is_superadmin()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select coalesce(
+    (select role = 'superadmin'
+     from public.profiles
+     where id = auth.uid()),
+    false
+  )
+$$;
 
 -- Profesionales del negocio
 create table if not exists public.staff_members (
@@ -188,6 +150,44 @@ create table if not exists public.bookings (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+-- Valida que no exista solapamiento de turnos por profesional
+create or replace function public.prevent_overlap()
+returns trigger
+language plpgsql
+as $$
+begin
+  if exists (
+    select 1
+    from public.bookings b
+    where b.tenant_id = new.tenant_id
+      and b.staff_id = new.staff_id
+      and b.status in ('pending', 'confirmed', 'completed')
+      and b.starts_at < new.ends_at
+      and b.ends_at > new.starts_at
+  ) then
+    raise exception 'El profesional ya tiene un turno en ese rango horario';
+  end if;
+  return new;
+end $$;
+
+-- Exposición acotada de turnos ocupados (solo para disponibilidad pública)
+create or replace function public.booked_slots(p_tenant uuid, p_staff uuid, p_date date)
+returns table (starts_at timestamp, ends_at timestamp)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select b.starts_at, b.ends_at
+  from public.bookings b
+  where b.tenant_id = p_tenant
+    and b.staff_id = p_staff
+    and b.status in ('pending', 'confirmed', 'completed')
+    and b.starts_at::date = p_date
+$$;
+
+grant execute on function public.booked_slots(uuid, uuid, date) to anon, authenticated;
 
 -- Protección contra doble reserva (transaction-safe)
 drop trigger if exists bookings_no_overlap on public.bookings;

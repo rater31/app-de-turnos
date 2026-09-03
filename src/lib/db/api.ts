@@ -157,7 +157,7 @@ export async function onboardTenant(input: {
     .single();
 
   if (tenantError || !tenant) {
-    return { ok: false, message: "No se pudo crear el negocio. Intentá de nuevo." };
+    return { ok: false, message: `Error tenant: ${tenantError?.message}` };
   }
 
   const { error: profileError } = await client.from("profiles").insert({
@@ -170,7 +170,7 @@ export async function onboardTenant(input: {
   });
 
   if (profileError) {
-    return { ok: false, message: "No se pudo crear el perfil. Intentá de nuevo." };
+    return { ok: false, message: `Error perfil: ${profileError.message}` };
   }
 
   // El trigger profile_onboarding crea automáticamente el staff_member del owner.
@@ -183,7 +183,7 @@ export async function onboardTenant(input: {
   });
 
   if (subError) {
-    return { ok: false, message: "No se pudo crear la suscripción. Intentá de nuevo." };
+    return { ok: false, message: `Error sub: ${subError.message}` };
   }
 
   return { ok: true };
