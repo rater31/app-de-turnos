@@ -11,6 +11,7 @@ const OnboardingSchema = z.object({
   email: z.string().email("Ingresá un email válido"),
   password: z.string().min(8, "La contraseña debe tener al menos 8 caracteres"),
   phone: z.string().optional(),
+  plan: z.enum(["gratis", "pro"]).optional(),
 });
 
 export type OnboardingState = {
@@ -28,13 +29,14 @@ export async function onboarding(
     email: formData.get("email"),
     password: formData.get("password"),
     phone: formData.get("phone") || undefined,
+    plan: formData.get("plan") || undefined,
   });
 
   if (!parsed.success) {
     return { errors: parsed.error.flatten().fieldErrors };
   }
 
-  const { businessName, fullName, email, password, phone } = parsed.data;
+  const { businessName, fullName, email, password, phone, plan } = parsed.data;
 
   const supabase = createSupabaseServerClient();
   const { data, error } = await supabase.auth.signUp({
@@ -50,7 +52,14 @@ export async function onboarding(
     return { message: "No se pudo crear la cuenta. Intentá de nuevo." };
   }
 
-  const result = await onboardTenant({ userId: data.user.id, businessName, fullName, email, phone });
+  const result = await onboardTenant({
+    userId: data.user.id,
+    businessName,
+    fullName,
+    email,
+    phone,
+    plan,
+  });
   if (!result.ok) {
     return { message: result.message };
   }

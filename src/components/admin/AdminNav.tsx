@@ -4,8 +4,19 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { logout } from "@/app/actions/logout";
 
+const NAV_ITEMS = [
+  { href: "/admin", label: "Dashboard", active: "/admin", exact: true },
+  { href: "/admin/negocios", label: "Negocios", active: "/admin/negocios", exact: false },
+  { href: "/admin/usuarios", label: "Usuarios", active: "/admin/usuarios", exact: false },
+  { href: "/admin/pagos", label: "Pagos", active: "/admin/pagos", exact: false },
+  { href: "/admin/suscripciones", label: "Suscripciones", active: "/admin/suscripciones", exact: false },
+];
+
 export default function AdminNav({ userName }: { userName: string }) {
   const pathname = usePathname();
+
+  const isActive = (item: (typeof NAV_ITEMS)[number]) =>
+    item.exact ? pathname === item.active : pathname.startsWith(item.active);
 
   return (
     <aside className="flex w-60 shrink-0 flex-col border-r border-slate-200 bg-white">
@@ -20,25 +31,19 @@ export default function AdminNav({ userName }: { userName: string }) {
       </div>
 
       <nav className="flex-1 space-y-1 px-3 py-4">
-        <Link
-          href="/admin"
-          className={
-            pathname === "/admin"
-              ? "flex items-center gap-3 rounded-lg bg-indigo-50 px-3 py-2 text-sm font-semibold text-indigo-700"
-              : "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-100 hover:text-slate-900"
-          }
-        >
-          <svg
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={1.8}
-            className="h-4.5 w-4.5"
+        {NAV_ITEMS.map((item) => (
+          <Link
+            key={item.href}
+            href={item.href}
+            className={
+              isActive(item)
+                ? "flex items-center gap-3 rounded-lg bg-indigo-50 px-3 py-2 text-sm font-semibold text-indigo-700"
+                : "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-100 hover:text-slate-900"
+            }
           >
-            <path d="M3 21h18M3 10h18M5 6l7-3 7 3M4 10v11M20 10v11M8 14h8" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-          Negocios
-        </Link>
+            {item.label}
+          </Link>
+        ))}
       </nav>
 
       <div className="border-t border-slate-100 px-3 py-4">

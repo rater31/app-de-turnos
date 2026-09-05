@@ -39,6 +39,9 @@ export async function login(
 
   const account = await getUserWithTenant(data.user.id);
   if (account && account.profile.role !== "superadmin" && account.tenant?.status !== "active") {
+    if (account.tenant?.slug) {
+      redirect(`/abonar/${account.tenant.slug}`);
+    }
     return { message: "Tu negocio está deshabilitado. Contactá al administrador." };
   }
 

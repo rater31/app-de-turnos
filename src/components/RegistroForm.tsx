@@ -3,16 +3,39 @@
 import { useActionState } from "react";
 import { onboarding, type OnboardingState } from "@/app/actions/onboarding";
 
-export default function RegistroForm() {
+const PLAN_INFO: Record<string, { nombre: string; precio: string }> = {
+  gratis: { nombre: "Gratis", precio: "$0" },
+  pro: { nombre: "Pro", precio: "$15.000/mes" },
+};
+
+export default function RegistroForm({ plan }: { plan: "pro" | "gratis" | null }) {
   const [state, formAction, pending] = useActionState<OnboardingState, FormData>(
     onboarding,
     {},
   );
 
+  const planInfo = plan ? PLAN_INFO[plan] : null;
+
   return (
     <form action={formAction} className="space-y-4">
       {state?.message && (
         <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-700">{state.message}</p>
+      )}
+
+      {planInfo && (
+        <input type="hidden" name="plan" value={plan ?? ""} />
+      )}
+
+      {plan && (
+        <div className="rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm">
+          <p className="font-semibold text-indigo-900">
+            Plan seleccionado: {planInfo?.nombre}
+          </p>
+          <p className="text-indigo-700">
+            {planInfo?.precio}
+            {plan === "pro" && " · Se abona al vencer tu prueba de 30 días."}
+          </p>
+        </div>
       )}
 
       <Field label="Nombre del negocio" name="businessName" error={state?.errors?.businessName}>

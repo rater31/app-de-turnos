@@ -15,6 +15,10 @@ export default function NegocioForm({
     phone: string | null;
     address: string | null;
     primary_color: string;
+    logo_text: string | null;
+    alias_cbu: string | null;
+    banco: string | null;
+    titular: string | null;
   };
 }) {
   const [state, formAction, pending] = useActionState<NegocioState, FormData>(
@@ -65,6 +69,24 @@ export default function NegocioForm({
         </div>
 
         <div>
+          <label htmlFor="logo_text" className="mb-1 block text-sm font-medium text-slate-700">
+            Texto del logo
+          </label>
+          <input
+            type="text"
+            name="logo_text"
+            id="logo_text"
+            maxLength={4}
+            defaultValue={business.logo_text ?? ""}
+            className={inputClass}
+            placeholder="NL (máx. 4 letras)"
+          />
+          <p className="mt-1 text-xs text-slate-400">
+            Se muestra en tu página pública cuando no hay imagen de logo.
+          </p>
+        </div>
+
+        <div>
           <label htmlFor="phone" className="mb-1 block text-sm font-medium text-slate-700">
             Teléfono / WhatsApp
           </label>
@@ -110,6 +132,58 @@ export default function NegocioForm({
             ))}
           </div>
           <input type="hidden" name="primary_color" value={color} readOnly />
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+        <h3 className="text-sm font-semibold text-slate-900">Datos para la seña (transferencia)</h3>
+        <p className="mt-1 text-xs text-slate-500">
+          El cliente verá estos datos al reservar para transferirte la seña directo, sin
+          comisiones. Completalos para que puedan reservar.
+        </p>
+
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          <div className="sm:col-span-2">
+            <label htmlFor="alias_cbu" className="mb-1 block text-sm font-medium text-slate-700">
+              Alias o CBU / CVU
+            </label>
+            <input
+              type="text"
+              name="alias_cbu"
+              id="alias_cbu"
+              defaultValue={business.alias_cbu ?? ""}
+              className={inputClass}
+              placeholder="juan.perez.mp / 0000003100012345678901"
+            />
+          </div>
+
+          <div>
+            <label htmlFor="titular" className="mb-1 block text-sm font-medium text-slate-700">
+              Titular de la cuenta
+            </label>
+            <input
+              type="text"
+              name="titular"
+              id="titular"
+              defaultValue={business.titular ?? ""}
+              className={inputClass}
+              placeholder="Juan Pérez"
+            />
+          </div>
+
+          <div>
+            <label htmlFor="banco" className="mb-1 block text-sm font-medium text-slate-700">
+              Banco / billetera
+            </label>
+            <input
+              type="text"
+              name="banco"
+              id="banco"
+              defaultValue={business.banco ?? ""}
+              className={inputClass}
+              placeholder="Mercado Pago / Banco Nación"
+            />
+          </div>
         </div>
       </div>
 

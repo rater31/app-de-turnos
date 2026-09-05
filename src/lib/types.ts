@@ -4,9 +4,13 @@ export type TenantPublic = {
   slug: string;
   description: string | null;
   logo_url: string | null;
+  logo_text: string | null;
   primary_color: string;
   address: string | null;
   phone: string | null;
+  alias_cbu: string | null;
+  banco: string | null;
+  titular: string | null;
 };
 
 export type Service = {
@@ -64,5 +68,6 @@ export type BookingRow = {
   notes: string | null;
   services: { name: string; duration_minutes: number; price: number } | null;
   staff_members: { name: string; color: string } | null;
-  clients: { name: string; phone: string | null } | null;
+  clients: { name: string; phone: string | null; email: string | null } | null;
+  payment: { receipt_url: string | null } | null;
 };

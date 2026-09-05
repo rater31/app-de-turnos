@@ -1,20 +1,15 @@
 import NegocioForm from "@/components/panel/NegocioForm";
-import MercadoPagoConnector from "@/components/panel/MercadoPagoConnector";
 import { requireUser } from "@/lib/auth";
-import { getSellerAccount, getSubscription } from "@/lib/db/api";
+import { getSubscription } from "@/lib/db/api";
 
 export const metadata = { title: "Ajustes" };
 
 type SearchParams = Promise<{ mp?: string }>;
 
 export default async function AjustesPage({ searchParams }: { searchParams: SearchParams }) {
-  const { mp } = await searchParams;
+  await searchParams;
   const user = await requireUser();
-  const [subscription, sellerAccount] = await Promise.all([
-    getSubscription(user.tenant.id),
-    getSellerAccount(user.tenant.id),
-  ]);
-  const mpStatus = mp === "ok" ? ("ok" as const) : mp === "error" ? ("error" as const) : null;
+  const subscription = await getSubscription(user.tenant.id);
 
   return (
     <div className="max-w-2xl space-y-6">
@@ -38,6 +33,10 @@ export default async function AjustesPage({ searchParams }: { searchParams: Sear
               phone: user.tenant.phone ?? null,
               address: user.tenant.address ?? null,
               primary_color: user.tenant.primary_color,
+              logo_text: user.tenant.logo_text ?? null,
+              alias_cbu: user.tenant.alias_cbu ?? null,
+              banco: user.tenant.banco ?? null,
+              titular: user.tenant.titular ?? null,
             }}
           />
         </div>
@@ -63,31 +62,30 @@ export default async function AjustesPage({ searchParams }: { searchParams: Sear
         </div>
       </div>
 
-      <MercadoPagoConnector
-        account={sellerAccount}
-        connectUrl="/api/mercadopago/connect"
-        mpStatus={mpStatus}
-      />
-
       <div className="rounded-2xl border border-slate-200 bg-white p-5">
         <h2 className="text-sm font-semibold text-slate-900">Plan</h2>
-        <div className="mt-2 flex items-center justify-between">
+        <div className="mt-2 flex items-start justify-between gap-3">
           <div>
             <p className="text-sm text-slate-600">
               Plan{" "}
               <span className="font-semibold capitalize">
-                {subscription?.status ?? user.tenant.plan}
+                {user.tenant.plan}
               </span>
-              {subscription?.plan ? ` (${subscription.plan})` : ""}
+              {subscription?.status ? ` · ${subscription.status}` : ""}
             </p>
             {subscription?.current_period_end && (
               <p className="text-xs text-slate-400">
                 Prueba hasta el {new Date(subscription.current_period_end).toLocaleDateString("es-AR")}
               </p>
             )}
+            {user.tenant.plan === "pro" && (
+              <p className="mt-2 max-w-md text-xs text-slate-500">
+                Al vencer la prueba se abona el plan Pro ($15.000/mes) con Mercado Pago.
+              </p>
+            )}
           </div>
           <span className="rounded-full bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700">
-            Próximamente: pago online
+            {user.tenant.plan === "pro" ? "Pago al vencer la prueba" : "Plan gratuito"}
           </span>
         </div>
       </div>

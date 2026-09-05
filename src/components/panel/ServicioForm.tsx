@@ -95,30 +95,33 @@ export default function ServicioForm({
         </Field>
         <div>
           <p className="mb-1 text-sm font-medium text-slate-700">Requiere seña</p>
-          <div className="flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2">
-            <input
-              type="checkbox"
-              name="requires_deposit"
-              id="requires_deposit"
-              className="h-4 w-4"
-              defaultChecked={servicio?.requires_deposit ?? false}
-            />
-            <label htmlFor="requires_deposit" className="text-sm text-slate-700">
-              Sí, pedir seña al reservar
-            </label>
+          <div className="flex items-center gap-2 rounded-lg border border-slate-300 bg-slate-50 px-3 py-2">
+            <input type="hidden" name="requires_deposit" value="true" />
+            <span className="text-sm text-slate-700">Sí, seña obligatoria al reservar</span>
           </div>
         </div>
       </div>
 
-      <Field label="Monto de la seña ($)" name="deposit_amount" error={state?.errors?.deposit_amount}>
+      <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+        <p className="text-sm font-semibold text-amber-900">Seña obligatoria</p>
+        <p className="mt-1 text-xs text-amber-800">
+          Todos los servicios requieren una seña de al menos{" "}
+          <span className="font-semibold">$5.000</span>. El cliente deberá adjuntar el
+          comprobante al reservar y vos lo cobrás por tu cuenta de Mercado Pago (descontando la
+          comisión de la plataforma).
+        </p>
+      </div>
+
+      <Field label="Monto de la seña ($, mínimo $5.000)" name="deposit_amount" error={state?.errors?.deposit_amount}>
         <input
           type="number"
           name="deposit_amount"
-          min={0}
+          required
+          min={5000}
           step="0.01"
           className={inputClass}
-          placeholder="0"
-          defaultValue={servicio?.deposit_amount ?? 0}
+          placeholder="5000"
+          defaultValue={servicio?.deposit_amount ?? 5000}
         />
       </Field>
 

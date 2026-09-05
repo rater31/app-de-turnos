@@ -39,13 +39,16 @@ export async function eliminarTurno(bookingId: string) {
 // Servicios
 // ---------------------------------------------------------------------------
 
+const MIN_DEPOSIT = 5000;
+
 const ServicioSchema = z.object({
   name: z.string().min(2, "El nombre es obligatorio"),
   description: z.string().optional(),
   duration_minutes: z.coerce.number().int().min(5).max(600),
   price: z.coerce.number().min(0),
-  requires_deposit: z.coerce.boolean(),
-  deposit_amount: z.coerce.number().min(0).optional(),
+  deposit_amount: z.coerce
+    .number()
+    .min(MIN_DEPOSIT, `La seña mínima es de $${MIN_DEPOSIT}`),
 });
 
 export type ServicioState = { ok?: boolean; errors?: Record<string, string[]>; message?: string };
@@ -59,7 +62,6 @@ export async function crearServicio(
     description: formData.get("description") || undefined,
     duration_minutes: formData.get("duration_minutes"),
     price: formData.get("price"),
-    requires_deposit: formData.has("requires_deposit"),
     deposit_amount: formData.get("deposit_amount") || undefined,
   });
 
@@ -76,11 +78,8 @@ export async function crearServicio(
     description: parsed.data.description,
     durationMinutes: parsed.data.duration_minutes,
     price: parsed.data.price,
-    requiresDeposit: parsed.data.requires_deposit,
-    depositAmount:
-      parsed.data.requires_deposit && parsed.data.deposit_amount
-        ? parsed.data.deposit_amount
-        : null,
+    requiresDeposit: true,
+    depositAmount: parsed.data.deposit_amount,
     staffIds,
   });
 
@@ -101,7 +100,6 @@ export async function actualizarServicio(
     description: formData.get("description") || undefined,
     duration_minutes: formData.get("duration_minutes"),
     price: formData.get("price"),
-    requires_deposit: formData.has("requires_deposit"),
     deposit_amount: formData.get("deposit_amount") || undefined,
   });
   if (!parsed.success) {
@@ -119,11 +117,8 @@ export async function actualizarServicio(
     description: parsed.data.description,
     durationMinutes: parsed.data.duration_minutes,
     price: parsed.data.price,
-    requiresDeposit: parsed.data.requires_deposit,
-    depositAmount:
-      parsed.data.requires_deposit && parsed.data.deposit_amount
-        ? parsed.data.deposit_amount
-        : null,
+    requiresDeposit: true,
+    depositAmount: parsed.data.deposit_amount,
     staffIds,
   });
 
@@ -273,6 +268,10 @@ const NegocioSchema = z.object({
   phone: z.string().optional(),
   address: z.string().optional(),
   primary_color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+  logo_text: z.string().optional(),
+  alias_cbu: z.string().optional(),
+  banco: z.string().optional(),
+  titular: z.string().optional(),
 });
 
 export type NegocioState = { ok?: boolean; errors?: Record<string, string[]>; message?: string };
@@ -287,6 +286,10 @@ export async function actualizarNegocio(
     phone: formData.get("phone") || undefined,
     address: formData.get("address") || undefined,
     primary_color: formData.get("primary_color") || "#0f172a",
+    logo_text: formData.get("logo_text") || undefined,
+    alias_cbu: formData.get("alias_cbu") || undefined,
+    banco: formData.get("banco") || undefined,
+    titular: formData.get("titular") || undefined,
   });
   if (!parsed.success) return { errors: parsed.error.flatten().fieldErrors };
 
@@ -297,6 +300,10 @@ export async function actualizarNegocio(
     phone: parsed.data.phone || null,
     address: parsed.data.address || null,
     primary_color: parsed.data.primary_color,
+    logo_text: parsed.data.logo_text?.trim() ? parsed.data.logo_text.trim() : null,
+    alias_cbu: parsed.data.alias_cbu || null,
+    banco: parsed.data.banco || null,
+    titular: parsed.data.titular || null,
   });
 
   revalidatePath("/panel/ajustes");

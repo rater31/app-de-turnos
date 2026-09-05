@@ -1,8 +1,9 @@
 import Link from "next/link";
 import TurnoAcciones from "@/components/panel/TurnoAcciones";
+import TurnoDetalle from "@/components/panel/TurnoDetalle";
 import { requireUser } from "@/lib/auth";
 import { countRows, listBookings } from "@/lib/db/api";
-import { formatCurrency, formatDate, formatTime } from "@/lib/utils";
+import { formatCurrency, formatDate, formatTime, whatsappLinkWithText } from "@/lib/utils";
 
 const STATUS_LABEL: Record<string, { label: string; cls: string }> = {
   pending: { label: "Pendiente", cls: "bg-amber-50 text-amber-700 border-amber-200" },
@@ -90,10 +91,28 @@ export default async function PanelHome() {
                     )}
                   </div>
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center gap-3">
                   <span className={`rounded-full border px-2.5 py-0.5 text-xs font-medium ${st.cls}`}>
                     {st.label}
                   </span>
+                  {b.clients?.phone &&
+                    (() => {
+                      const wa = whatsappLinkWithText(
+                        b.clients.phone,
+                        `¡Hola ${b.clients.name ?? ""}! Te escribo por tu turno de ${b.services?.name ?? ""} el ${formatDate(b.starts_at)} a las ${formatTime(b.starts_at)}.`,
+                      );
+                      return wa ? (
+                        <a
+                          href={wa}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 rounded-lg bg-[#25D366] px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-[#1fb958]"
+                        >
+                          WhatsApp
+                        </a>
+                      ) : null;
+                    })()}
+                  <TurnoDetalle booking={b} />
                   <TurnoAcciones bookingId={b.id} status={b.status} />
                 </div>
               </div>

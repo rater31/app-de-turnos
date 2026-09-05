@@ -3,7 +3,12 @@ import RegistroForm from "@/components/RegistroForm";
 
 export const metadata = { title: "Crear cuenta" };
 
-export default function RegistroPage() {
+type SearchParams = Promise<{ plan?: string }>;
+
+export default async function RegistroPage({ searchParams }: { searchParams: SearchParams }) {
+  const { plan } = await searchParams;
+  const selectedPlan = plan === "pro" ? "pro" : plan === "gratis" ? "gratis" : null;
+
   return (
     <main className="flex flex-1 items-center justify-center bg-gradient-to-b from-indigo-50 to-slate-50 px-4 py-12">
       <div className="w-full max-w-md">
@@ -25,7 +30,7 @@ export default function RegistroPage() {
           </p>
         </div>
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
-          <RegistroForm />
+          <RegistroForm plan={selectedPlan} />
         </div>
         <p className="mt-4 text-center text-sm text-slate-600">
           ¿Ya tenés cuenta?{" "}

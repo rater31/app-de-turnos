@@ -80,6 +80,7 @@ const PASOS = [
 
 const PLANES = [
   {
+    slug: "gratis",
     nombre: "Gratis",
     precio: "$0",
     detalle: "Para arrancar y validar",
@@ -93,6 +94,7 @@ const PLANES = [
     cta: "Probar gratis",
   },
   {
+    slug: "pro",
     nombre: "Pro",
     precio: "$15.000",
     detalle: "/mes por negocio",
@@ -292,7 +294,7 @@ export default function HomePage() {
                     ))}
                   </ul>
                   <Link
-                    href="/registro"
+                    href={`/registro?plan=${plan.slug}`}
                     className={
                       plan.featured
                         ? "mt-8 block rounded-xl bg-indigo-600 px-4 py-3 text-center text-sm font-semibold text-white transition hover:bg-indigo-500"

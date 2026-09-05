@@ -65,7 +65,7 @@ export default function MercadoPagoConnector(
               </svg>
             </span>
             <div>
-              <p className="text-sm font-medium text-emerald-900">Conectado</p>
+              <p className="text-sm font-medium text-emerald-900">Conectado · listo para recibir señas</p>
               <p className="text-xs text-emerald-700">ID de usuario: {account.mp_user_id}</p>
             </div>
           </div>
@@ -74,6 +74,10 @@ export default function MercadoPagoConnector(
             <span className="text-slate-600">Comisión de la plataforma</span>
             <span className="font-semibold text-slate-900">{account.commission_pct}%</span>
           </div>
+          <p className="text-xs text-slate-500">
+            Cuando un cliente confirma una seña, el dinero va a tu cuenta de Mercado Pago restando
+            la comisión de la plataforma.
+          </p>
 
           <form action={formAction}>
             <button
@@ -87,6 +91,15 @@ export default function MercadoPagoConnector(
         </div>
       ) : (
         <div className="mt-4">
+          <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
+            <p className="text-sm font-semibold text-amber-900">
+              Conectá tu cuenta para recibir las señas
+            </p>
+            <p className="mt-1 text-xs text-amber-800">
+              Sin conectar tu cuenta de Mercado Pago, las señas de tus clientes no llegan a tu
+              dinero. Conectala para cobrar online descontando la comisión de la plataforma.
+            </p>
+          </div>
           <a
             href={connectUrl}
             className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#00b1ea] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#009bd1]"

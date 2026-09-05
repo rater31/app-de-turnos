@@ -32,7 +32,11 @@ create table if not exists public.tenants (
   email text,
   address text,
   logo_url text,
+  logo_text text,
   primary_color text not null default '#0f172a',
+  alias_cbu text,
+  banco text,
+  titular text,
   plan text not null default 'trial', -- trial | pro
   status text not null default 'active', -- active | suspended
   trial_ends_at timestamptz,
@@ -100,11 +104,20 @@ create table if not exists public.services (
   description text,
   duration_minutes int not null default 30,
   price numeric(10,2) not null default 0,
-  requires_deposit boolean not null default false,
+  requires_deposit boolean not null default true,
   deposit_amount numeric(10,2),
   active boolean not null default true,
   created_at timestamptz not null default now()
 );
+
+-- La seña es obligatoria en todos los servicios, con un mínimo de $5.000.
+do $$
+begin
+  alter table public.services add constraint services_deposit_min check (
+    deposit_amount is null or deposit_amount >= 5000
+  );
+exception when duplicate_object then null;
+end $$;
 
 -- Relación muchos-a-muchos servicio <-> profesional
 create table if not exists public.service_staff (
@@ -207,6 +220,7 @@ create table if not exists public.payments (
   method text not null default 'local' check (method in ('local', 'mercado_pago')),
   status text not null default 'pending' check (status in ('pending', 'paid', 'refunded', 'failed')),
   mp_payment_id text,
+  receipt_url text,
   created_at timestamptz not null default now()
 );
 
@@ -243,6 +257,20 @@ create table if not exists public.subscriptions (
   current_period_end timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
+);
+
+-- Pagos de la suscripción al SaaS (transferencia manual + comprobante)
+create table if not exists public.subscription_payments (
+  id uuid primary key default gen_random_uuid(),
+  tenant_id uuid not null references public.tenants (id) on delete cascade,
+  subscription_id uuid references public.subscriptions (id) on delete set null,
+  amount numeric(10,2) not null default 0,
+  status text not null default 'pending' check (status in ('pending', 'paid', 'refunded', 'cancelled')),
+  receipt_url text,
+  period_start timestamptz,
+  period_end timestamptz,
+  created_at timestamptz not null default now(),
+  processed_at timestamptz
 );
 
 -- ----------------------------------------------------------------------------
@@ -283,6 +311,7 @@ alter table public.payments enable row level security;
 alter table public.seller_accounts enable row level security;
 alter table public.reminders enable row level security;
 alter table public.subscriptions enable row level security;
+alter table public.subscription_payments enable row level security;
 
 -- Perfiles: el usuario ve/edita su propio perfil
 drop policy if exists profiles_select on public.profiles;
@@ -407,6 +436,12 @@ create policy reminders_all_superadmin on public.reminders
   for all using (public.is_superadmin()) with check (public.is_superadmin());
 drop policy if exists subscriptions_all_superadmin on public.subscriptions;
 create policy subscriptions_all_superadmin on public.subscriptions
+  for all using (public.is_superadmin()) with check (public.is_superadmin());
+drop policy if exists subscription_payments_all on public.subscription_payments;
+create policy subscription_payments_all on public.subscription_payments
+  for all using (tenant_id = public.current_tenant_id()) with check (tenant_id = public.current_tenant_id());
+drop policy if exists subscription_payments_all_superadmin on public.subscription_payments;
+create policy subscription_payments_all_superadmin on public.subscription_payments
   for all using (public.is_superadmin()) with check (public.is_superadmin());
 
 -- ----------------------------------------------------------------------------

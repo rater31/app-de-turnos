@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useTransition } from "react";
 import { cambiarEstadoNegocio } from "@/app/actions/admin";
 
@@ -49,18 +50,26 @@ export default function TenantRow({ tenant }: { tenant: Tenant }) {
           <span>{tenant.counts.staff} profesionales</span>
         </p>
       </div>
-      <button
-        type="button"
-        onClick={toggle}
-        disabled={pending}
-        className={
-          active
-            ? "rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-rose-300 hover:bg-rose-50 hover:text-rose-700 disabled:opacity-60"
-            : "rounded-lg bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-600 disabled:opacity-60"
-        }
-      >
-        {pending ? "…" : active ? "Deshabilitar" : "Habilitar"}
-      </button>
+      <div className="flex shrink-0 items-center gap-2">
+        <Link
+          href={`/admin/negocios/${tenant.id}`}
+          className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700"
+        >
+          Ver
+        </Link>
+        <button
+          type="button"
+          onClick={toggle}
+          disabled={pending}
+          className={
+            active
+              ? "rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-rose-300 hover:bg-rose-50 hover:text-rose-700 disabled:opacity-60"
+              : "rounded-lg bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-600 disabled:opacity-60"
+          }
+        >
+          {pending ? "…" : active ? "Deshabilitar" : "Habilitar"}
+        </button>
+      </div>
     </div>
   );
 }

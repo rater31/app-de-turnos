@@ -26,9 +26,13 @@ export type DBTenant = {
   status: string;
   primary_color: string;
   logo_url: string | null;
+  logo_text: string | null;
   description: string | null;
   phone: string | null;
   address: string | null;
+  alias_cbu: string | null;
+  banco: string | null;
+  titular: string | null;
   trial_ends_at: string | null;
   created_at: string;
   updated_at: string;
@@ -110,7 +114,21 @@ export type DBPayment = {
   method: "local" | "mercado_pago";
   status: DBPaymentStatus;
   mp_payment_id: string | null;
+  receipt_url: string | null;
   created_at: string;
+};
+
+export type DBSubscriptionPayment = {
+  id: string;
+  tenant_id: string;
+  subscription_id: string | null;
+  amount: number;
+  status: "pending" | "paid" | "refunded" | "cancelled";
+  receipt_url: string | null;
+  period_start: string | null;
+  period_end: string | null;
+  created_at: string;
+  processed_at: string | null;
 };
 
 export type DB = {

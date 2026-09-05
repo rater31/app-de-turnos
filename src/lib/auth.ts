@@ -21,9 +21,13 @@ export type SessionUser = {
     status: string;
     primary_color: string;
     logo_url: string | null;
+    logo_text: string | null;
     description: string | null;
     phone: string | null;
     address: string | null;
+    alias_cbu: string | null;
+    banco: string | null;
+    titular: string | null;
   } | null;
 };
 
@@ -53,9 +57,13 @@ export const getUser = cache(async (): Promise<SessionUser | null> => {
           status: tenant.status,
           primary_color: tenant.primary_color,
           logo_url: tenant.logo_url,
+          logo_text: tenant.logo_text,
           description: tenant.description,
           phone: tenant.phone,
           address: tenant.address,
+          alias_cbu: tenant.alias_cbu,
+          banco: tenant.banco,
+          titular: tenant.titular,
         }
       : null,
   };
