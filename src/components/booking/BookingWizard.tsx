@@ -71,8 +71,10 @@ export default function BookingWizard({ tenant, services, staff, serviceStaff, h
   const [receiptName, setReceiptName] = useState("");
   const [receiptError, setReceiptError] = useState("");
   const [transferOpen, setTransferOpen] = useState(true);
+  const [copied, setCopied] = useState(false);
 
   const requestRef = useRef(0);
+  const pointerStart = useRef<{ x: number; y: number } | null>(null);
 
   const service = services.find((s) => s.id === serviceId) ?? null;
 
@@ -160,6 +162,20 @@ export default function BookingWizard({ tenant, services, staff, serviceStaff, h
     setSelectedTime(null);
     setBooked([]);
     setStep("staff");
+  };
+  const handleServicePointerStart = () => (e: React.PointerEvent) => {
+    pointerStart.current = { x: e.clientX, y: e.clientY };
+  };
+  const handleServicePointer = (id: string) => (e: React.PointerEvent) => {
+    const start = pointerStart.current;
+    pointerStart.current = null;
+    if (start) {
+      const dx = Math.abs(e.clientX - start.x);
+      const dy = Math.abs(e.clientY - start.y);
+      if (dx > 10 || dy > 10) return;
+    }
+    e.preventDefault();
+    selectService(id);
   };
 
   const selectStaff = (id: string) => {
@@ -332,8 +348,10 @@ export default function BookingWizard({ tenant, services, staff, serviceStaff, h
                       {services.map((s) => (
                         <button
                           key={s.id}
-                          onClick={() => selectService(s.id)}
-                          className="w-full text-left p-4 sm:p-5 rounded-2xl border bg-white shadow-[0_1px_4px_rgba(0,0,0,0.06)] transition-all hover:border-slate-900/25 hover:-translate-y-0.5 active:translate-y-0 lg:p-4 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/20 border-slate-200/70"
+                          type="button"
+                          onPointerDown={handleServicePointerStart()}
+                          onPointerUp={handleServicePointer(s.id)}
+                          className="w-full text-left p-4 sm:p-5 rounded-2xl border bg-white shadow-[0_1px_4px_rgba(0,0,0,0.06)] transition-colors hover-hover:hover:border-slate-900/25 lg:p-4 cursor-pointer touch-manipulation focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/20 border-slate-200/70"
                         >
                           <div className="flex gap-3 items-center">
                             <div className="flex-1 min-w-0">
@@ -380,8 +398,9 @@ export default function BookingWizard({ tenant, services, staff, serviceStaff, h
                       {availableStaff.map((s) => (
                         <button
                           key={s.id}
-                          onClick={() => selectStaff(s.id)}
-                          className="flex items-center gap-3 w-full text-left p-4 sm:p-5 rounded-2xl border bg-white shadow-[0_1px_4px_rgba(0,0,0,0.06)] transition-all hover:border-slate-900/25 hover:-translate-y-0.5 cursor-pointer border-slate-200/70"
+                          type="button"
+                          onPointerUp={() => selectStaff(s.id)}
+                          className="flex items-center gap-3 w-full text-left p-4 sm:p-5 rounded-2xl border bg-white shadow-[0_1px_4px_rgba(0,0,0,0.06)] transition-colors hover-hover:hover:border-slate-900/25 cursor-pointer touch-manipulation border-slate-200/70"
                         >
                           <span
                             className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-bold text-white"
@@ -414,6 +433,7 @@ export default function BookingWizard({ tenant, services, staff, serviceStaff, h
                       {days.map((d) => (
                         <button
                           key={d.key}
+                          type="button"
                           disabled={!d.hasHours}
                           onClick={() => {
                             setSelectedDate(d.key);
@@ -425,7 +445,7 @@ export default function BookingWizard({ tenant, services, staff, serviceStaff, h
                             selectedDate === d.key
                               ? "shrink-0 rounded-lg px-4 py-2 text-sm font-semibold text-white"
                               : d.hasHours
-                                ? "shrink-0 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-slate-400"
+                                ? "shrink-0 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover-hover:hover:border-slate-400 touch-manipulation"
                                 : "shrink-0 cursor-not-allowed rounded-lg bg-slate-100 px-4 py-2 text-sm text-slate-400"
                           }
                           style={selectedDate === d.key ? { backgroundColor: accent } : undefined}
@@ -449,6 +469,7 @@ export default function BookingWizard({ tenant, services, staff, serviceStaff, h
                             return (
                               <button
                                 key={slot}
+                                type="button"
                                 disabled={disabled}
                                 onClick={() => setSelectedTime(slot)}
                                 className={
@@ -456,7 +477,7 @@ export default function BookingWizard({ tenant, services, staff, serviceStaff, h
                                     ? "rounded-lg px-3 py-2 text-sm font-semibold text-white"
                                     : disabled
                                       ? "cursor-not-allowed rounded-lg bg-slate-100 px-3 py-2 text-sm text-slate-300 line-through"
-                                      : "rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:border-slate-400"
+                                      : "rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover-hover:hover:border-slate-400 touch-manipulation"
                                 }
                                 style={selectedTime === slot ? { backgroundColor: accent } : undefined}
                               >
@@ -538,11 +559,12 @@ export default function BookingWizard({ tenant, services, staff, serviceStaff, h
                             placeholder="11 2345 6789"
                           />
                         </Field>
-                        <Field label="Email (opcional)" name="clientEmail" error={errors?.clientEmail}>
+                        <Field label="Email" name="clientEmail" error={errors?.clientEmail}>
                           <input
                             id="clientEmail"
                             type="email"
                             name="clientEmail"
+                            required
                             className={inputClass}
                             placeholder="tu@email.com"
                           />
@@ -609,15 +631,24 @@ export default function BookingWizard({ tenant, services, staff, serviceStaff, h
 
                                 <button
                                   type="button"
-                                  onClick={() => {
-                                    const parts = [tenant.alias_cbu, tenant.titular, tenant.banco]
-                                      .filter(Boolean)
-                                      .join(" · ");
-                                    if (parts) navigator.clipboard?.writeText(parts);
+                                  onClick={async () => {
+                                    if (!tenant.alias_cbu) return;
+                                    try {
+                                      await navigator.clipboard.writeText(tenant.alias_cbu);
+                                    } catch {
+                                      const ta = document.createElement("textarea");
+                                      ta.value = tenant.alias_cbu;
+                                      document.body.appendChild(ta);
+                                      ta.select();
+                                      document.execCommand("copy");
+                                      document.body.removeChild(ta);
+                                    }
+                                    setCopied(true);
+                                    setTimeout(() => setCopied(false), 2000);
                                   }}
                                   className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
                                 >
-                                  Copiar datos de transferencia
+                                  {copied ? "¡Alias copiado!" : "Copiar alias / CVU"}
                                 </button>
                               </div>
                             ) : (

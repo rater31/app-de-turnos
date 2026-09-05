@@ -1,5 +1,7 @@
 import Link from "next/link";
 
+import { FadeIn } from "@/components/motion";
+
 const BENEFICIOS = [
   {
     titulo: "Reservas online 24/7",
@@ -96,7 +98,7 @@ const PLANES = [
   {
     slug: "pro",
     nombre: "Pro",
-    precio: "$15.000",
+    precio: "$8.000",
     detalle: "/mes por negocio",
     featured: true,
     items: [
@@ -117,7 +119,7 @@ const PREGUNTAS = [
   },
   {
     p: "¿Cómo funciona el cobro de señas?",
-    r: "El cliente paga cuando reserva y el dinero va directo a tu cuenta de Mercado Pago. La plataforma solo se queda un pequeño porcentaje.",
+    r: "El cliente paga cuando reserva y el dinero va directo a tu cuenta de Mercado Pago. La plataforma no se queda nada.",
   },
   {
     p: "¿Puedo usarlo sin cobrar señas?",
@@ -168,9 +170,9 @@ export default function HomePage() {
         <section className="relative overflow-hidden">
           <div className="pointer-events-none absolute inset-0 -z-10 bg-gradient-to-b from-indigo-50 via-white to-white" />
           <div className="mx-auto max-w-6xl px-4 py-20 sm:px-6 sm:py-28">
-            <div className="mx-auto max-w-3xl text-center">
+            <FadeIn className="mx-auto max-w-3xl text-center">
               <p className="mb-4 inline-flex items-center gap-2 rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700">
-                Agenda online para barberías, peluquerías, dentistas y más
+                Agenda online ideal para tu local
               </p>
               <h1 className="text-4xl font-bold tracking-tight text-slate-900 sm:text-6xl">
                 Tu agenda de turnos, <span className="text-indigo-600">trabajando sola</span>
@@ -196,23 +198,27 @@ export default function HomePage() {
               <p className="mt-4 text-sm text-slate-500">
                 Sin tarjeta de crédito · Listo en 10 minutos
               </p>
-            </div>
+            </FadeIn>
           </div>
         </section>
 
         {/* CÓMO FUNCIONA */}
         <section id="como-funciona" className="border-y border-slate-200 bg-white">
           <div className="mx-auto max-w-6xl px-4 py-20 sm:px-6">
-            <h2 className="text-center text-3xl font-bold tracking-tight text-slate-900">
-              Empezar es así de simple
-            </h2>
+            <FadeIn>
+              <h2 className="text-center text-3xl font-bold tracking-tight text-slate-900">
+                Empezar es así de simple
+              </h2>
+            </FadeIn>
             <div className="mt-12 grid gap-8 sm:grid-cols-3">
-              {PASOS.map((paso) => (
-                <div key={paso.n} className="relative rounded-2xl border border-slate-200 p-6">
-                  <span className="text-sm font-bold text-indigo-600">{paso.n}</span>
-                  <h3 className="mt-2 text-lg font-semibold text-slate-900">{paso.t}</h3>
-                  <p className="mt-2 text-sm leading-relaxed text-slate-600">{paso.d}</p>
-                </div>
+              {PASOS.map((paso, i) => (
+                <FadeIn key={paso.n} delay={i * 0.12}>
+                  <div className="relative rounded-2xl border border-slate-200 p-6">
+                    <span className="text-sm font-bold text-indigo-600">{paso.n}</span>
+                    <h3 className="mt-2 text-lg font-semibold text-slate-900">{paso.t}</h3>
+                    <p className="mt-2 text-sm leading-relaxed text-slate-600">{paso.d}</p>
+                  </div>
+                </FadeIn>
               ))}
             </div>
           </div>
@@ -221,26 +227,25 @@ export default function HomePage() {
         {/* BENEFICIOS */}
         <section id="beneficios" className="bg-slate-50">
           <div className="mx-auto max-w-6xl px-4 py-20 sm:px-6">
-            <div className="max-w-2xl">
+            <FadeIn className="max-w-2xl">
               <h2 className="text-3xl font-bold tracking-tight text-slate-900">
                 Lo que tu negocio gana con TurnoFácil
               </h2>
               <p className="mt-3 text-slate-600">
                 Pensado para el rubro de servicios por turno: simple de usar, directo a la venta.
               </p>
-            </div>
+            </FadeIn>
             <div className="mt-12 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-              {BENEFICIOS.map((b) => (
-                <div
-                  key={b.titulo}
-                  className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
-                >
+              {BENEFICIOS.map((b, i) => (
+                <FadeIn key={b.titulo} delay={(i % 3) * 0.1}>
+                  <div className="h-full rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
                   <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600">
                     {b.icono}
                   </div>
                   <h3 className="mt-4 text-base font-semibold text-slate-900">{b.titulo}</h3>
                   <p className="mt-2 text-sm leading-relaxed text-slate-600">{b.texto}</p>
-                </div>
+                  </div>
+                </FadeIn>
               ))}
             </div>
           </div>
@@ -250,17 +255,19 @@ export default function HomePage() {
         <section id="planes" className="border-y border-slate-200 bg-white">
           <div className="mx-auto max-w-6xl px-4 py-20 sm:px-6">
             <div className="mx-auto max-w-2xl text-center">
-              <h2 className="text-3xl font-bold tracking-tight text-slate-900">
-                Planes pensados para crecer con vos
-              </h2>
-              <p className="mt-3 text-slate-600">
-                Empezá gratis. Cuando el sistema te rinda, pasás a Pro con más herramientas.
-              </p>
+              <FadeIn>
+                <h2 className="text-3xl font-bold tracking-tight text-slate-900">
+                  Planes pensados para crecer con vos
+                </h2>
+                <p className="mt-3 text-slate-600">
+                  Empezá gratis. Cuando el sistema te rinda, pasás a Pro con más herramientas.
+                </p>
+              </FadeIn>
             </div>
             <div className="mx-auto mt-12 grid max-w-3xl gap-6 sm:grid-cols-2">
-              {PLANES.map((plan) => (
+              {PLANES.map((plan, i) => (
+                <FadeIn key={plan.nombre} delay={i * 0.12}>
                 <div
-                  key={plan.nombre}
                   className={
                     plan.featured
                       ? "relative rounded-2xl border-2 border-indigo-600 bg-indigo-50/40 p-6 shadow-lg shadow-indigo-600/10"
@@ -304,6 +311,7 @@ export default function HomePage() {
                     {plan.cta}
                   </Link>
                 </div>
+                </FadeIn>
               ))}
             </div>
           </div>
@@ -313,9 +321,11 @@ export default function HomePage() {
         <section className="bg-slate-50">
           <div className="mx-auto max-w-6xl px-4 py-20 sm:px-6">
             <div className="mx-auto max-w-2xl text-center">
-              <h2 className="text-3xl font-bold tracking-tight text-slate-900">
-                Negocios que ya no pierden turnos
-              </h2>
+              <FadeIn>
+                <h2 className="text-3xl font-bold tracking-tight text-slate-900">
+                  Negocios que ya no pierden turnos
+                </h2>
+              </FadeIn>
             </div>
             <div className="mt-12 grid gap-6 sm:grid-cols-3">
               {[
@@ -334,8 +344,9 @@ export default function HomePage() {
                   texto:
                     "Cada estilista tiene su agenda. No se superponen horarios y el equipo lo usa desde el primer día.",
                 },
-              ].map((t) => (
-                <figure key={t.nombre} className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+              ].map((t, i) => (
+                <FadeIn key={t.nombre} delay={i * 0.12}>
+                <figure className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
                   <div className="flex gap-0.5 text-amber-400" aria-label="5 de 5 estrellas">
                     {Array.from({ length: 5 }).map((_, i) => (
                       <svg key={i} viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
@@ -350,6 +361,7 @@ export default function HomePage() {
                     {t.nombre}
                   </figcaption>
                 </figure>
+                </FadeIn>
               ))}
             </div>
           </div>
@@ -358,13 +370,15 @@ export default function HomePage() {
         {/* FAQ */}
         <section id="faq" className="bg-white">
           <div className="mx-auto max-w-3xl px-4 py-20 sm:px-6">
-            <h2 className="text-center text-3xl font-bold tracking-tight text-slate-900">
-              Preguntas frecuentes
-            </h2>
+            <FadeIn>
+              <h2 className="text-center text-3xl font-bold tracking-tight text-slate-900">
+                Preguntas frecuentes
+              </h2>
+            </FadeIn>
             <div className="mt-10 space-y-4">
-              {PREGUNTAS.map((q) => (
+              {PREGUNTAS.map((q, i) => (
+                <FadeIn key={q.p} delay={i * 0.08}>
                 <details
-                  key={q.p}
                   className="group rounded-2xl border border-slate-200 bg-slate-50/50 p-5"
                 >
                   <summary className="flex cursor-pointer list-none items-center justify-between gap-4 font-medium text-slate-900">
@@ -373,6 +387,7 @@ export default function HomePage() {
                   </summary>
                   <p className="mt-3 text-sm leading-relaxed text-slate-600">{q.r}</p>
                 </details>
+                </FadeIn>
               ))}
             </div>
           </div>
@@ -380,7 +395,7 @@ export default function HomePage() {
 
         {/* CTA FINAL */}
         <section className="bg-gradient-to-br from-indigo-600 to-indigo-700">
-          <div className="mx-auto max-w-3xl px-4 py-20 text-center sm:px-6">
+          <FadeIn className="mx-auto max-w-3xl px-4 py-20 text-center sm:px-6">
             <h2 className="text-3xl font-bold tracking-tight text-white sm:text-4xl">
               Listo para no perder más turnos
             </h2>
@@ -393,12 +408,12 @@ export default function HomePage() {
             >
               Crear mi cuenta gratis
             </Link>
-          </div>
+          </FadeIn>
         </section>
       </main>
 
       <footer className="border-t border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 px-4 py-8 text-sm text-slate-500 sm:flex-row sm:px-6">
+        <FadeIn className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 px-4 py-8 text-sm text-slate-500 sm:flex-row sm:px-6">
           <div className="flex items-center gap-2 font-semibold text-slate-700">
             <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-600 text-white">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="h-4 w-4">
@@ -414,7 +429,7 @@ export default function HomePage() {
             <a href="#planes" className="hover:text-slate-900">Planes</a>
             <a href="#faq" className="hover:text-slate-900">FAQ</a>
           </nav>
-        </div>
+        </FadeIn>
       </footer>
     </>
   );

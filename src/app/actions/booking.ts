@@ -10,7 +10,7 @@ const ReservaSchema = z.object({
   startsAt: z.string().min(1, "Elegí un horario"),
   clientName: z.string().min(2, "Ingresá tu nombre"),
   clientPhone: z.string().min(6, "Ingresá un teléfono válido"),
-  clientEmail: z.string().email("Ingresá un email válido").optional().or(z.literal("")),
+  clientEmail: z.string().email("Ingresá un email válido"),
   notes: z.string().optional(),
   depositConfirmed: z.enum(["on"]).optional(),
 });
