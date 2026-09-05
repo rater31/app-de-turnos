@@ -1,8 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useActionState } from "react";
-import Link from "next/link";
 import { reservar, type ReservaState } from "@/app/actions/booking";
 import type { BusinessHours, Service, ServiceStaff, StaffMember, TenantPublic } from "@/lib/types";
 import {
@@ -74,7 +73,6 @@ export default function BookingWizard({ tenant, services, staff, serviceStaff, h
   const [copied, setCopied] = useState(false);
 
   const requestRef = useRef(0);
-  const pointerStart = useRef<{ x: number; y: number } | null>(null);
 
   const service = services.find((s) => s.id === serviceId) ?? null;
 
@@ -163,20 +161,6 @@ export default function BookingWizard({ tenant, services, staff, serviceStaff, h
     setBooked([]);
     setStep("staff");
   };
-  const handleServicePointerStart = () => (e: React.PointerEvent) => {
-    pointerStart.current = { x: e.clientX, y: e.clientY };
-  };
-  const handleServicePointer = (id: string) => (e: React.PointerEvent) => {
-    const start = pointerStart.current;
-    pointerStart.current = null;
-    if (start) {
-      const dx = Math.abs(e.clientX - start.x);
-      const dy = Math.abs(e.clientY - start.y);
-      if (dx > 10 || dy > 10) return;
-    }
-    e.preventDefault();
-    selectService(id);
-  };
 
   const selectStaff = (id: string) => {
     setStaffId(id);
@@ -198,606 +182,491 @@ export default function BookingWizard({ tenant, services, staff, serviceStaff, h
       `${service?.name ?? ""}${staffName ? ` con ${staffName}` : ""}`,
       `El ${selectedDate}${selectedTime ? ` a las ${formatTime(selectedTime)}` : ""}`,
       `Referencia: ${bookingId.slice(0, 8)}`,
-      deposit
-        ? `Seña pendiente: ${formatCurrency(deposit.amount)}`
-        : "Sin seña.",
+      deposit ? `Seña pendiente: ${formatCurrency(deposit.amount)}` : "Sin seña.",
     ].join("\n");
     const whatsappMsg = whatsappLinkWithText(tenant.phone, msg);
 
     return (
-      <SuccessScreen
-        tenantName={tenant.name}
-        serviceName={service?.name}
-        staffName={staff.find((s) => s.id === staffId)?.name}
-        date={selectedDate}
-        time={selectedTime}
-        bookingId={bookingId}
-        depositAmount={deposit?.amount ?? null}
-        whatsappMsg={whatsappMsg}
-        tenantPhone={tenant.phone}
-      />
+      <div className="p-8 text-center">
+        <h2 className="text-xl font-bold mb-2">¡Reserva exitosa!</h2>
+        <p className="text-sm text-slate-600 mb-4">Tu turno ha sido registrado correctamente.</p>
+        <a
+          href={whatsappMsg ?? ""}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-block bg-green-600 text-white px-6 py-3 rounded-xl font-semibold shadow"
+        >
+          Avisar por WhatsApp
+        </a>
+      </div>
     );
   }
-
-  const goBack = () => {
-    if (step === "staff") setStep("service");
-    else if (step === "time") setStep("staff");
-    else if (step === "data") setStep("time");
-  };
-
-  const goNext = () => {
-    if (step === "service" && serviceId) setStep("staff");
-    else if (step === "staff" && staffId) setStep("time");
-    else if (step === "time" && selectedTime) setStep("data");
-  };
 
   const stepName = step === "done" ? "Confirmar" : STEP_LABELS[step as Step];
 
   return (
-    <div className="relative flex min-h-screen w-full flex-col overflow-x-clip bg-[#fafafa]">
-      {/* Fondo decorativo */}
+    <div className="relative flex min-h-screen w-full flex-col bg-[#fafafa]">
       <div
         aria-hidden
         className="pointer-events-none fixed inset-0 -z-10"
         style={{
-          background: `radial-gradient(ellipse 80% 50% at 50% -10%, ${accentSoft}66, transparent 55%), radial-gradient(ellipse 60% 40% at 100% 50%, ${accentSoft}33, transparent 50%), #fafafa`,
+          background: `radial-gradient(ellipse 80% 50% at 50% -10%, ${accentSoft}66, transparent 55%), #fafafa`,
         }}
       />
 
-      <main className="flex-1 w-full max-w-full pb-8 sm:pb-12">
-        <div className="w-full scroll-mt-4">
-          <div className="w-full lg:px-8 xl:px-12 lg:py-8">
-            <div className="lg:grid lg:grid-cols-[minmax(280px,360px)_minmax(0,1fr)] lg:gap-10 xl:gap-12 lg:items-start">
-              {/* Columna izquierda: header del negocio + pasos */}
-              <aside className="lg:sticky lg:top-8 lg:self-start">
-                <header
-                  className="relative w-full max-w-full text-center px-5 sm:px-6 pt-8 pb-10 sm:pt-10 sm:pb-12 lg:rounded-3xl lg:text-left lg:px-6 lg:py-8 lg:pb-10 lg:shadow-sm"
-                  style={{
-                    background: `linear-gradient(180deg, ${accentSoft} 0%, ${accentSoft} 38%, ${mixWithWhite(accent, 0.86)} 50%, ${mixWithWhite(accent, 0.72)} 60%, ${mixWithWhite(accent, 0.55)} 70%, ${mixWithWhite(accent, 0.38)} 80%, ${mixWithWhite(accent, 0.22)} 88%, ${mixWithWhite(accent, 0.1)} 94%, ${mixWithWhite(accent, 0.04)} 98%, #fafafa 100%)`,
-                    color: "#0a0a0a",
-                  }}
-                >
-                  <div className="flex items-center justify-center gap-4 sm:gap-5 text-left lg:justify-start">
-                    <div
-                      className="flex h-20 w-20 sm:h-24 sm:w-24 lg:h-20 lg:w-20 shrink-0 items-center justify-center rounded-2xl overflow-hidden shadow-md text-xl font-bold text-white lg:bg-white"
-                      style={{ backgroundColor: accent }}
-                    >
-                      {tenant.logo_url ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={tenant.logo_url}
-                          alt={tenant.name}
-                          className="w-full h-full object-contain"
-                        />
-                      ) : (
-                        <span className="text-lg font-bold">
-                          {tenant.logo_text || tenant.name.charAt(0)}
-                        </span>
-                      )}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <h1 className="w-full min-w-0 font-normal tracking-tight text-2xl sm:text-3xl lg:text-2xl xl:text-3xl">
-                        {tenant.name}
-                      </h1>
-                      <p className="text-sm mt-2 opacity-80 whitespace-pre-line">
-                        {tenant.description || "Reservá tu turno online"}
-                      </p>
-                    </div>
+      <main className="flex-1 w-full pb-12">
+        <div className="w-full lg:px-8 xl:px-12 lg:py-8">
+          <div className="lg:grid lg:grid-cols-[minmax(280px,360px)_minmax(0,1fr)] lg:gap-10 lg:items-start">
+            
+            {/* ASIDE / HEADER */}
+            <aside className="w-full lg:sticky lg:top-8">
+              <header
+                className="w-full text-center px-5 pt-8 pb-10 lg:rounded-3xl lg:text-left lg:p-6 lg:shadow-sm"
+                style={{
+                  background: `linear-gradient(180deg, ${accentSoft} 0%, #fafafa 100%)`,
+                  color: "#0a0a0a",
+                }}
+              >
+                <div className="flex items-center justify-center gap-4 text-left lg:justify-start">
+                  <div
+                    className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl overflow-hidden shadow-md text-xl font-bold text-white"
+                    style={{ backgroundColor: accent }}
+                  >
+                    {tenant.logo_url ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={tenant.logo_url} alt={tenant.name} className="w-full h-full object-contain" />
+                    ) : (
+                      <span>{tenant.logo_text || tenant.name.charAt(0)}</span>
+                    )}
                   </div>
+                  <div className="min-w-0 flex-1">
+                    <h1 className="font-bold tracking-tight text-xl sm:text-2xl">{tenant.name}</h1>
+                    <p className="text-xs mt-1 opacity-80">{tenant.description || "Reservá tu turno online"}</p>
+                  </div>
+                </div>
 
-                  {/* Lista de pasos (desktop) */}
-                  <ol className="hidden lg:flex lg:flex-col lg:gap-1.5 lg:mt-8">
-                    {STEPS.map((s, i) => {
-                      const current = i === currentIndex;
-                      return (
-                        <li
-                          key={s}
-                          className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors ${
-                            current
-                              ? "bg-white/95 text-foreground shadow-sm font-semibold"
-                              : "opacity-60"
-                          }`}
-                        >
-                          <span
-                            className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-bold border-2 ${
-                              current
-                                ? "border-slate-300 bg-slate-100 text-slate-700"
-                                : "border-slate-400/40 text-slate-600"
-                            }`}
-                          >
-                            {i + 1}
-                          </span>
-                          {STEP_LABELS[s]}
-                        </li>
-                      );
-                    })}
-                  </ol>
-                </header>
-              </aside>
-
-              {/* Columna derecha: contenido del wizard */}
-              <section className="min-w-0 scroll-mt-4 px-4 pt-2 sm:pt-4 pb-8 lg:px-0 lg:pt-0 lg:pb-0">
-                {/* Progreso (mobile) */}
-                <nav className="mb-6 w-full lg:hidden scroll-mt-4" aria-label="Progreso de reserva">
-                  <ol className="flex gap-1 mb-3" aria-hidden="true">
-                    {STEPS.map((s, i) => (
+                <ol className="hidden lg:flex lg:flex-col lg:gap-1.5 lg:mt-6">
+                  {STEPS.map((s, i) => {
+                    const current = i === currentIndex;
+                    return (
                       <li
                         key={s}
-                        className={`h-1 flex-1 rounded-full transition-colors ${
-                          i <= currentIndex ? "bg-slate-900" : "bg-slate-200"
+                        className={`flex items-center gap-3 rounded-xl px-3 py-2 text-sm ${
+                          current ? "bg-white text-foreground shadow-sm font-semibold" : "opacity-60"
                         }`}
-                      />
+                      >
+                        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold border">
+                          {i + 1}
+                        </span>
+                        {STEP_LABELS[s]}
+                      </li>
+                    );
+                  })}
+                </ol>
+              </header>
+            </aside>
+
+            {/* SECCIÓN PRINCIPAL / CONTENIDO */}
+            <section className="relative z-10 w-full px-4 pt-4 pb-8 lg:px-0 lg:pt-0">
+              <nav className="mb-6 w-full lg:hidden" aria-label="Progreso">
+                <ol className="flex gap-1 mb-3">
+                  {STEPS.map((s, i) => (
+                    <li
+                      key={s}
+                      className={`h-1 flex-1 rounded-full ${i <= currentIndex ? "bg-slate-900" : "bg-slate-200"}`}
+                    />
+                  ))}
+                </ol>
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-semibold">{stepName}</p>
+                  <p className="text-xs text-slate-400">Paso {currentIndex + 1} de {STEPS.length}</p>
+                </div>
+              </nav>
+
+              {/* PASO 1: SERVICIO */}
+              {step === "service" && (
+                <div className="space-y-3">
+                  <h2 className="font-semibold text-lg mb-1">Elegí servicios</h2>
+                  <p className="text-sm text-slate-500 mb-4">Seleccioná una opción para continuar.</p>
+                  
+                  <div className="space-y-3">
+                    {services.map((s) => (
+                      <button
+                        key={s.id}
+                        type="button"
+                        onClick={() => selectService(s.id)}
+                        className="w-full text-left p-4 rounded-2xl border bg-white shadow-sm transition hover:border-slate-400 active:bg-slate-50 cursor-pointer touch-manipulation border-slate-200"
+                      >
+                        <div className="flex justify-between items-center">
+                          <div>
+                            <p className="font-semibold text-slate-900 text-base">{s.name}</p>
+                            <p className="text-sm font-medium text-slate-700 mt-1">{formatCurrency(s.price)}</p>
+                            <p className="text-xs text-slate-500 mt-0.5">{s.duration_minutes} min</p>
+                          </div>
+                          <span className="text-slate-400 font-bold text-lg">›</span>
+                        </div>
+                      </button>
                     ))}
-                  </ol>
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm font-semibold truncate" aria-current="step">
-                      {stepName}
-                    </p>
-                    <p className="text-xs text-slate-400 shrink-0 tabular-nums">
-                      Paso {currentIndex + 1} de {STEPS.length}
-                    </p>
                   </div>
-                </nav>
+                </div>
+              )}
 
-                {/* PASO 1: SERVICIO */}
-                {step === "service" && (
-                  <div className="bg-transparent p-6 sm:p-8 lg:p-8">
-                    <h2 className="font-semibold text-lg mb-1">Elegí servicios</h2>
-                    <p className="text-sm text-slate-500 mb-4">Podés reservar tu turno.</p>
-                    <div className="space-y-3 lg:grid lg:grid-cols-2 lg:gap-3 lg:space-y-0">
-                      {services.map((s) => (
-                        <button
-                          key={s.id}
-                          type="button"
-                          onPointerDown={handleServicePointerStart()}
-                          onPointerUp={handleServicePointer(s.id)}
-                          className="w-full text-left p-4 sm:p-5 rounded-2xl border bg-white shadow-[0_1px_4px_rgba(0,0,0,0.06)] transition-colors hover-hover:hover:border-slate-900/25 lg:p-4 cursor-pointer touch-manipulation focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/20 border-slate-200/70"
+              {/* PASO 2: PROFESIONAL */}
+              {step === "staff" && (
+                <div className="space-y-3">
+                  <h2 className="font-semibold text-lg mb-1">Elegí tu profesional</h2>
+                  <p className="text-sm text-slate-500 mb-4">{service?.name}</p>
+                  <div className="space-y-3">
+                    {availableStaff.map((s) => (
+                      <button
+                        key={s.id}
+                        type="button"
+                        onClick={() => selectStaff(s.id)}
+                        className="flex items-center gap-3 w-full text-left p-4 rounded-2xl border bg-white shadow-sm transition hover:border-slate-400 active:bg-slate-50 cursor-pointer touch-manipulation border-slate-200"
+                      >
+                        <span
+                          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-bold text-white"
+                          style={{ backgroundColor: s.color || accent }}
                         >
-                          <div className="flex gap-3 items-center">
-                            <div className="flex-1 min-w-0">
-                              <p className="font-semibold text-slate-900">{s.name}</p>
-                              <p className="text-base text-slate-900 mt-1 tabular-nums">
-                                {formatCurrency(s.price)}
-                              </p>
-                              <p className="text-xs text-slate-500 mt-0.5">
-                                {s.duration_minutes} min
-                                {s.requires_deposit && s.deposit_amount != null
-                                  ? ` · Seña ${formatCurrency(Number(s.deposit_amount))}`
-                                  : ""}
-                              </p>
-                              {s.description && (
-                                <p className="mt-2 text-xs text-slate-500 leading-relaxed line-clamp-2">
-                                  {s.description}
-                                </p>
-                              )}
-                            </div>
-                            <svg
-                              className="h-5 w-5 shrink-0 text-slate-400"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth={2}
-                            >
-                              <path d="m9 18 6-6-6-6" />
-                            </svg>
-                          </div>
-                        </button>
-                      ))}
-                    </div>
+                          {s.name.charAt(0)}
+                        </span>
+                        <span className="font-semibold text-slate-900">{s.name}</span>
+                      </button>
+                    ))}
                   </div>
-                )}
+                </div>
+              )}
 
-                {/* PASO 2: PROFESIONAL */}
-                {step === "staff" && (
-                  <div className="bg-transparent p-6 sm:p-8 lg:p-8">
-                    <h2 className="font-semibold text-lg mb-1">Elegí tu profesional</h2>
-                    <p className="text-sm text-slate-500 mb-4">
-                      {service?.name} · {service?.duration_minutes} min
-                    </p>
-                    <div className="space-y-3 lg:grid lg:grid-cols-2 lg:gap-3 lg:space-y-0">
-                      {availableStaff.map((s) => (
-                        <button
-                          key={s.id}
-                          type="button"
-                          onPointerUp={() => selectStaff(s.id)}
-                          className="flex items-center gap-3 w-full text-left p-4 sm:p-5 rounded-2xl border bg-white shadow-[0_1px_4px_rgba(0,0,0,0.06)] transition-colors hover-hover:hover:border-slate-900/25 cursor-pointer touch-manipulation border-slate-200/70"
-                        >
-                          <span
-                            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-bold text-white"
-                            style={{ backgroundColor: s.color || accent }}
+              {/* PASO 3: DÍA Y HORA */}
+              {step === "time" && (
+                <div className="space-y-3">
+                  <h2 className="font-semibold text-lg mb-1">Elegí día y horario</h2>
+                  <div className="flex gap-2 overflow-x-auto pb-2">
+                    {days.map((d) => (
+                      <button
+                        key={d.key}
+                        type="button"
+                        disabled={!d.hasHours}
+                        onClick={() => {
+                          setSelectedDate(d.key);
+                          setSelectedTime(null);
+                          setBooked([]);
+                          setNow(Date.now());
+                        }}
+                        className={
+                          selectedDate === d.key
+                            ? "shrink-0 rounded-lg px-4 py-2 text-sm font-semibold text-white"
+                            : d.hasHours
+                            ? "shrink-0 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:border-slate-400 cursor-pointer touch-manipulation"
+                            : "shrink-0 cursor-not-allowed rounded-lg bg-slate-100 px-4 py-2 text-sm text-slate-400"
+                        }
+                        style={selectedDate === d.key ? { backgroundColor: accent } : undefined}
+                      >
+                        <div>{d.label}</div>
+                        <div className="text-xs font-normal opacity-80">{d.weekdayLabel}</div>
+                      </button>
+                    ))}
+                  </div>
+
+                  {selectedDate && (
+                    <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 mt-4">
+                      {slots.map((slot) => {
+                        const taken = isBooked(slot);
+                        const past = new Date(`${selectedDate}T${slot}:00`).getTime() <= now;
+                        const disabled = taken || past;
+                        return (
+                          <button
+                            key={slot}
+                            type="button"
+                            disabled={disabled}
+                            onClick={() => setSelectedTime(slot)}
+                            className={
+                              selectedTime === slot
+                                ? "rounded-lg px-3 py-2 text-sm font-semibold text-white"
+                                : disabled
+                                ? "cursor-not-allowed rounded-lg bg-slate-100 px-3 py-2 text-sm text-slate-300 line-through"
+                                : "rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:border-slate-400 cursor-pointer touch-manipulation"
+                            }
+                            style={selectedTime === slot ? { backgroundColor: accent } : undefined}
                           >
-                            {s.name.charAt(0)}
-                          </span>
-                          <span className="font-semibold text-slate-900">{s.name}</span>
-                        </button>
-                      ))}
-                      {availableStaff.length === 0 && (
-                        <p className="text-sm text-slate-500">
-                          No hay profesionales disponibles para este servicio.
-                        </p>
-                      )}
+                            {formatTime(slot)}
+                          </button>
+                        );
+                      })}
                     </div>
-                  </div>
-                )}
+                  )}
 
-                {/* PASO 3: DÍA Y HORA */}
-                {step === "time" && (
-                  <div className="bg-transparent p-6 sm:p-8 lg:p-8">
-                    <h2 className="font-semibold text-lg mb-1">Elegí día y horario</h2>
-                    <p className="text-sm text-slate-500 mb-4">
-                      {service?.name} con{" "}
-                      {staff.find((s) => s.id === staffId)?.name ?? "profesional"}
-                    </p>
-
-                    <div className="flex gap-2 overflow-x-auto pb-2">
-                      {days.map((d) => (
-                        <button
-                          key={d.key}
-                          type="button"
-                          disabled={!d.hasHours}
-                          onClick={() => {
-                            setSelectedDate(d.key);
-                            setSelectedTime(null);
-                            setBooked([]);
-                            setNow(Date.now());
-                          }}
-                          className={
-                            selectedDate === d.key
-                              ? "shrink-0 rounded-lg px-4 py-2 text-sm font-semibold text-white"
-                              : d.hasHours
-                                ? "shrink-0 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover-hover:hover:border-slate-400 touch-manipulation"
-                                : "shrink-0 cursor-not-allowed rounded-lg bg-slate-100 px-4 py-2 text-sm text-slate-400"
-                          }
-                          style={selectedDate === d.key ? { backgroundColor: accent } : undefined}
-                        >
-                          <div>{d.label}</div>
-                          <div className="text-xs font-normal opacity-80">{d.weekdayLabel}</div>
-                        </button>
-                      ))}
-                    </div>
-
-                    {selectedDate && (
-                      <>
-                        <p className="mt-5 mb-2 text-sm font-semibold text-slate-800">
-                          Horarios disponibles
-                        </p>
-                        <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
-                          {slots.map((slot) => {
-                            const taken = isBooked(slot);
-                            const past = new Date(`${selectedDate}T${slot}:00`).getTime() <= now;
-                            const disabled = taken || past;
-                            return (
-                              <button
-                                key={slot}
-                                type="button"
-                                disabled={disabled}
-                                onClick={() => setSelectedTime(slot)}
-                                className={
-                                  selectedTime === slot
-                                    ? "rounded-lg px-3 py-2 text-sm font-semibold text-white"
-                                    : disabled
-                                      ? "cursor-not-allowed rounded-lg bg-slate-100 px-3 py-2 text-sm text-slate-300 line-through"
-                                      : "rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover-hover:hover:border-slate-400 touch-manipulation"
-                                }
-                                style={selectedTime === slot ? { backgroundColor: accent } : undefined}
-                              >
-                                {formatTime(slot)}
-                              </button>
-                            );
-                          })}
-                          {slots.length === 0 && (
-                            <p className="col-span-full py-6 text-center text-sm text-slate-500">
-                              No hay horarios disponibles para ese día.
-                            </p>
-                          )}
-                        </div>
-                      </>
-                    )}
-                  </div>
-                )}
-
-                {/* PASO 4: DATOS */}
-                {step === "data" && selectedTime && (
-                  <div className="bg-transparent p-6 sm:p-8 lg:p-8">
-                    <h2 className="font-semibold text-lg mb-1">Tus datos</h2>
-                    <p className="text-sm text-slate-500 mb-4">
-                      Completá tus datos para confirmar la reserva.
-                    </p>
-
-                    {message && (
-                      <p className="mb-4 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-700">
-                        {message}
-                      </p>
-                    )}
-
-                    <form action={formAction} className="space-y-4">
-                      <input type="hidden" name="slug" value={tenant.slug} />
-                      <input type="hidden" name="serviceId" value={serviceId ?? ""} />
-                      <input type="hidden" name="staffId" value={staffId ?? ""} />
-                      <input type="hidden" name="startsAt" value={`${selectedDate}T${selectedTime}:00`} />
-
-                      <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
-                        <div className="flex items-baseline justify-between gap-2">
-                          <p className="font-semibold text-slate-900">{service?.name}</p>
-                          <p className="shrink-0 font-semibold text-slate-900">
-                            {formatCurrency(service?.price ?? 0)}
-                          </p>
-                        </div>
-                        <p className="mt-1 text-slate-500">
-                          {service?.duration_minutes} min ·{" "}
-                          {staff.find((s) => s.id === staffId)?.name} · {selectedDate} ·{" "}
-                          {formatTime(selectedTime)}
-                        </p>
-                        {requiresDeposit && service?.deposit_amount != null && (
-                          <p className="mt-2 text-xs text-slate-500">
-                            Seña:{" "}
-                            <span className="font-semibold text-slate-700 tabular-nums">
-                              {formatCurrency(Number(service.deposit_amount))}
-                            </span>
-                          </p>
-                        )}
-                      </div>
-
-                      <div className="space-y-4">
-                        <Field label="Nombre" name="clientName" error={errors?.clientName}>
-                          <input
-                            id="clientName"
-                            type="text"
-                            name="clientName"
-                            required
-                            className={inputClass}
-                            placeholder="Tu nombre y apellido"
-                          />
-                        </Field>
-                        <Field label="Teléfono (WhatsApp)" name="clientPhone" error={errors?.clientPhone}>
-                          <input
-                            id="clientPhone"
-                            type="tel"
-                            name="clientPhone"
-                            required
-                            className={inputClass}
-                            placeholder="11 2345 6789"
-                          />
-                        </Field>
-                        <Field label="Email" name="clientEmail" error={errors?.clientEmail}>
-                          <input
-                            id="clientEmail"
-                            type="email"
-                            name="clientEmail"
-                            required
-                            className={inputClass}
-                            placeholder="tu@email.com"
-                          />
-                        </Field>
-                        <Field label="Notas (opcional)" name="notes">
-                          <textarea
-                            id="notes"
-                            name="notes"
-                            rows={2}
-                            className={inputClass}
-                            placeholder="¿Algo que deba saber?"
-                          />
-                        </Field>
-                      </div>
-
-                      {requiresDeposit && (
-                        <>
-                          <Accordion
-                            open={transferOpen}
-                            onToggle={() => setTransferOpen((v) => !v)}
-                            title="Datos para reserva"
-                          >
-                            {hasTransfer ? (
-                              <div className="space-y-3">
-                                <div>
-                                  <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                                    Monto de la seña
-                                  </p>
-                                  <p className="text-2xl font-bold text-slate-900 tabular-nums">
-                                    {formatCurrency(Number(service?.deposit_amount ?? 0))}
-                                  </p>
-                                </div>
-
-                                {tenant.alias_cbu && (
-                                  <div>
-                                    <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                                      Alias o CBU / CVU
-                                    </p>
-                                    <p className="font-mono text-sm font-semibold text-slate-900 break-all">
-                                      {tenant.alias_cbu}
-                                    </p>
-                                  </div>
-                                )}
-                                {tenant.titular && (
-                                  <div>
-                                    <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                                      Titular
-                                    </p>
-                                    <p className="text-sm font-semibold text-slate-900">
-                                      {tenant.titular}
-                                    </p>
-                                  </div>
-                                )}
-                                {tenant.banco && (
-                                  <div>
-                                    <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                                      Banco / billetera
-                                    </p>
-                                    <p className="text-sm font-semibold text-slate-900">
-                                      {tenant.banco}
-                                    </p>
-                                  </div>
-                                )}
-
-                                <button
-                                  type="button"
-                                  onClick={async () => {
-                                    if (!tenant.alias_cbu) return;
-                                    try {
-                                      await navigator.clipboard.writeText(tenant.alias_cbu);
-                                    } catch {
-                                      const ta = document.createElement("textarea");
-                                      ta.value = tenant.alias_cbu;
-                                      document.body.appendChild(ta);
-                                      ta.select();
-                                      document.execCommand("copy");
-                                      document.body.removeChild(ta);
-                                    }
-                                    setCopied(true);
-                                    setTimeout(() => setCopied(false), 2000);
-                                  }}
-                                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
-                                >
-                                  {copied ? "¡Alias copiado!" : "Copiar alias / CVU"}
-                                </button>
-                              </div>
-                            ) : (
-                              <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-sm text-amber-800">
-                                El negocio todavía no cargó sus datos de transferencia. Contactalo para
-                                coordinar el pago de la seña.
-                              </div>
-                            )}
-                          </Accordion>
-
-                          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
-                            <p className="text-sm font-semibold text-amber-900">
-                              Adjuntá el comprobante del pago
-                            </p>
-                            <p className="mt-1 text-xs text-amber-800">
-                              Después de transferir la seña, adjuntá el comprobante para reservar.
-                            </p>
-                            <div className="mt-3">
-                              <input
-                                type="hidden"
-                                name="depositConfirmed"
-                                value={receiptName ? "on" : ""}
-                              />
-                              <input
-                                type="file"
-                                name="receipt"
-                                accept="image/png,image/jpeg,image/webp,application/pdf"
-                                onChange={(e) => {
-                                  const file = e.target.files?.[0];
-                                  if (!file) {
-                                    setReceiptName("");
-                                    setReceiptError("");
-                                    return;
-                                  }
-                                  if (!/^(image\/(png|jpeg|jpg|webp)|application\/pdf)$/.test(file.type)) {
-                                    setReceiptName("");
-                                    setReceiptError(
-                                      "El archivo debe ser un PDF o una imagen (PNG, JPG, WEBP).",
-                                    );
-                                    return;
-                                  }
-                                  if (file.size > 5 * 1024 * 1024) {
-                                    setReceiptName("");
-                                    setReceiptError("El archivo no puede superar los 5MB.");
-                                    return;
-                                  }
-                                  setReceiptError("");
-                                  setReceiptName(file.name);
-                                }}
-                                className="block w-full rounded-lg border border-amber-300 bg-white text-sm text-slate-700 file:mr-3 file:rounded-l-lg file:border-0 file:bg-amber-600 file:px-3 file:py-2 file:text-xs file:font-semibold file:text-white"
-                              />
-                              {receiptError && (
-                                <p className="mt-1 text-xs text-red-600">{receiptError}</p>
-                              )}
-                              {receiptName && !receiptError && (
-                                <p className="mt-1 text-xs text-emerald-700">
-                                  ✓ Comprobante adjuntado: {receiptName}
-                                </p>
-                              )}
-                            </div>
-                          </div>
-                        </>
-                      )}
-
-                      <div className="flex items-center justify-between gap-3 pt-1">
-                        <button
-                          type="button"
-                          onClick={goBack}
-                          className="rounded-lg px-4 py-2.5 text-sm font-medium text-slate-600 transition hover:text-slate-900"
-                        >
-                          Atrás
-                        </button>
-                        <button
-                          type="submit"
-                          disabled={pending || (requiresDeposit && !receiptName)}
-                          title={
-                            requiresDeposit && !receiptName
-                              ? "Adjuntá el comprobante del pago de la seña para continuar"
-                              : undefined
-                          }
-                          className="rounded-xl px-6 py-2.5 text-sm font-semibold text-white shadow-sm transition disabled:opacity-60"
-                          style={{ backgroundColor: accent }}
-                        >
-                          {pending ? "Reservando…" : "Confirmar turno"}
-                        </button>
-                      </div>
-                      {requiresDeposit && !receiptName && (
-                        <p className="text-center text-xs text-amber-700">
-                          Adjuntá el comprobante de la seña para poder reservar.
-                        </p>
-                      )}
-                    </form>
-                  </div>
-                )}
-
-                {/* NAVEGACIÓN */}
-                {step !== "data" && step !== "done" && (
-                  <div className="mt-6 flex items-center justify-between border-t border-slate-100 pt-4 px-6 sm:px-8 lg:px-0 lg:border-0 lg:pt-0 lg:mt-0">
+                  {selectedTime && (
                     <button
                       type="button"
-                      disabled={step === "service"}
-                      onClick={goBack}
-                      className="rounded-lg px-4 py-2.5 text-sm font-medium text-slate-600 transition hover:text-slate-900 disabled:opacity-40"
-                    >
-                      Atrás
-                    </button>
-                    <button
-                      type="button"
-                      disabled={
-                        (step === "service" && !serviceId) ||
-                        (step === "staff" && !staffId) ||
-                        (step === "time" && !selectedTime)
-                      }
-                      onClick={goNext}
-                      className="rounded-xl px-6 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:opacity-90 disabled:opacity-40"
+                      onClick={() => setStep("data")}
+                      className="mt-6 w-full rounded-xl py-3 px-4 text-white font-semibold shadow-md cursor-pointer touch-manipulation transition hover:opacity-90"
                       style={{ backgroundColor: accent }}
                     >
                       Continuar
                     </button>
-                  </div>
-                )}
-              </section>
-            </div>
+                  )}
+                </div>
+              )}
+
+              {/* PASO 4: DATOS */}
+              {step === "data" && selectedTime && (
+                <div className="bg-transparent p-6 sm:p-8 lg:p-8">
+                  <h2 className="font-semibold text-lg mb-1">Tus datos</h2>
+                  <p className="text-sm text-slate-500 mb-4">
+                    Completá tus datos para confirmar la reserva.
+                  </p>
+
+                  {message && (
+                    <p className="mb-4 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-700">
+                      {message}
+                    </p>
+                  )}
+
+                  <form action={formAction} className="space-y-4">
+                    <input type="hidden" name="slug" value={tenant.slug} />
+                    <input type="hidden" name="serviceId" value={serviceId ?? ""} />
+                    <input type="hidden" name="staffId" value={staffId ?? ""} />
+                    <input type="hidden" name="startsAt" value={`${selectedDate}T${selectedTime}:00`} />
+
+                    <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
+                      <div className="flex items-baseline justify-between gap-2">
+                        <p className="font-semibold text-slate-900">{service?.name}</p>
+                        <p className="shrink-0 font-semibold text-slate-900">
+                          {formatCurrency(service?.price ?? 0)}
+                        </p>
+                      </div>
+                      <p className="mt-1 text-slate-500">
+                        {service?.duration_minutes} min ·{" "}
+                        {staff.find((s) => s.id === staffId)?.name} · {selectedDate} ·{" "}
+                        {formatTime(selectedTime)}
+                      </p>
+                      {requiresDeposit && service?.deposit_amount != null && (
+                        <p className="mt-2 text-xs text-slate-500">
+                          Seña:{" "}
+                          <span className="font-semibold text-slate-700 tabular-nums">
+                            {formatCurrency(Number(service.deposit_amount))}
+                          </span>
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="space-y-4">
+                      <Field label="Nombre" name="clientName" error={errors?.clientName}>
+                        <input
+                          id="clientName"
+                          type="text"
+                          name="clientName"
+                          required
+                          className={inputClass}
+                          placeholder="Tu nombre y apellido"
+                        />
+                      </Field>
+                      <Field label="Teléfono (WhatsApp)" name="clientPhone" error={errors?.clientPhone}>
+                        <input
+                          id="clientPhone"
+                          type="tel"
+                          name="clientPhone"
+                          required
+                          className={inputClass}
+                          placeholder="11 2345 6789"
+                        />
+                      </Field>
+                      <Field label="Email" name="clientEmail" error={errors?.clientEmail}>
+                        <input
+                          id="clientEmail"
+                          type="email"
+                          name="clientEmail"
+                          required
+                          className={inputClass}
+                          placeholder="tu@email.com"
+                        />
+                      </Field>
+                      <Field label="Notas (opcional)" name="notes">
+                        <textarea
+                          id="notes"
+                          name="notes"
+                          rows={2}
+                          className={inputClass}
+                          placeholder="¿Algo que deba saber?"
+                        />
+                      </Field>
+                    </div>
+
+                    {requiresDeposit && (
+                      <>
+                        <Accordion
+                          open={transferOpen}
+                          onToggle={() => setTransferOpen((v) => !v)}
+                          title="Datos para reserva"
+                        >
+                          {hasTransfer ? (
+                            <div className="space-y-3">
+                              <div>
+                                <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                                  Monto de la seña
+                                </p>
+                                <p className="text-2xl font-bold text-slate-900 tabular-nums">
+                                  {formatCurrency(Number(service?.deposit_amount ?? 0))}
+                                </p>
+                              </div>
+
+                              {tenant.alias_cbu && (
+                                <div>
+                                  <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                                    Alias o CBU / CVU
+                                  </p>
+                                  <p className="font-mono text-sm font-semibold text-slate-900 break-all">
+                                    {tenant.alias_cbu}
+                                  </p>
+                                </div>
+                              )}
+                              {tenant.titular && (
+                                <div>
+                                  <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                                    Titular
+                                  </p>
+                                  <p className="text-sm font-semibold text-slate-900">
+                                    {tenant.titular}
+                                  </p>
+                                </div>
+                              )}
+                              {tenant.banco && (
+                                <div>
+                                  <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                                    Banco / billetera
+                                  </p>
+                                  <p className="text-sm font-semibold text-slate-900">
+                                    {tenant.banco}
+                                  </p>
+                                </div>
+                              )}
+
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  if (!tenant.alias_cbu) return;
+                                  try {
+                                    await navigator.clipboard.writeText(tenant.alias_cbu);
+                                  } catch {
+                                    const ta = document.createElement("textarea");
+                                    ta.value = tenant.alias_cbu;
+                                    document.body.appendChild(ta);
+                                    ta.select();
+                                    document.execCommand("copy");
+                                    document.body.removeChild(ta);
+                                  }
+                                  setCopied(true);
+                                  setTimeout(() => setCopied(false), 2000);
+                                }}
+                                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+                              >
+                                {copied ? "¡Alias copiado!" : "Copiar alias / CVU"}
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-sm text-amber-800">
+                              El negocio todavía no cargó sus datos de transferencia. Contactalo para
+                              coordinar el pago de la seña.
+                            </div>
+                          )}
+                        </Accordion>
+
+                        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+                          <p className="text-sm font-semibold text-amber-900">
+                            Adjuntá el comprobante del pago
+                          </p>
+                          <p className="mt-1 text-xs text-amber-800">
+                            Después de transferir la seña, adjuntá el comprobante para reservar.
+                          </p>
+                          <div className="mt-3">
+                            <input
+                              type="hidden"
+                              name="depositConfirmed"
+                              value={receiptName ? "on" : ""}
+                            />
+                            <input
+                              type="file"
+                              name="receipt"
+                              accept="image/png,image/jpeg,image/webp,application/pdf"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (!file) {
+                                  setReceiptName("");
+                                  setReceiptError("");
+                                  return;
+                                }
+                                if (!/^(image\/(png|jpeg|jpg|webp)|application\/pdf)$/.test(file.type)) {
+                                  setReceiptName("");
+                                  setReceiptError(
+                                    "El archivo debe ser un PDF o una imagen (PNG, JPG, WEBP).",
+                                  );
+                                  return;
+                                }
+                                if (file.size > 5 * 1024 * 1024) {
+                                  setReceiptName("");
+                                  setReceiptError("El archivo no puede superar los 5MB.");
+                                  return;
+                                }
+                                setReceiptError("");
+                                setReceiptName(file.name);
+                              }}
+                              className="block w-full cursor-pointer rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 file:mr-3 file:rounded-lg file:border-0 file:bg-indigo-50 file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-indigo-700"
+                            />
+                            {receiptName && !receiptError && (
+                              <p className="mt-1 text-xs text-emerald-600">Adjunto: {receiptName}</p>
+                            )}
+                            {receiptError && <p className="mt-1 text-xs text-red-600">{receiptError}</p>}
+                          </div>
+                        </div>
+                      </>
+                    )}
+
+                    <button
+                      type="submit"
+                      disabled={pending || (requiresDeposit && !receiptName)}
+                      title={
+                        requiresDeposit && !receiptName
+                          ? "Adjuntá el comprobante del pago de la seña para continuar"
+                          : undefined
+                      }
+                      className="w-full rounded-xl px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:opacity-90 disabled:opacity-60 cursor-pointer touch-manipulation"
+                      style={{ backgroundColor: accent }}
+                    >
+                      {pending ? "Reservando…" : "Confirmar turno"}
+                    </button>
+                  </form>
+                </div>
+              )}
+            </section>
           </div>
         </div>
       </main>
+    </div>
+  );
+}
 
-      <footer className="mt-auto border-t border-slate-200/60 bg-[#f3f3f3]">
-        <div className="w-full px-4 py-8 sm:py-10 lg:px-8 xl:px-12">
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-2 sm:gap-3 text-sm text-slate-500">
-            <span>Con la tecnología de:</span>
-            <span className="inline-flex items-center gap-1.5 rounded-lg bg-white px-2.5 py-1.5 shadow-sm ring-1 ring-black/5">
-              <span className="text-sm font-semibold tracking-tight text-slate-900">
-                Agenda
-                <span style={{ color: accent }}>+</span>
-              </span>
-            </span>
-            <span className="hidden sm:inline" aria-hidden="true">
-              ·
-            </span>
-            <Link
-              href="/panel"
-              className="font-medium text-slate-900/70 hover:text-slate-900 hover:underline transition-colors"
-            >
-              Administra tu agenda
-            </Link>
-          </div>
-        </div>
-      </footer>
+const inputClass =
+  "w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none touch-manipulation";
+
+function Field({
+  label,
+  name,
+  error,
+  children,
+}: {
+  label: string;
+  name: string;
+  error?: string[];
+  children: ReactNode;
+}) {
+  return (
+    <div>
+      <label htmlFor={name} className="mb-1 block text-sm font-medium text-slate-700">
+        {label}
+      </label>
+      {children}
+      {error && <p className="mt-1 text-xs text-red-600">{error[0]}</p>}
     </div>
   );
 }
@@ -811,130 +680,23 @@ function Accordion({
   open: boolean;
   onToggle: () => void;
   title: string;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   return (
-    <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
+    <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
       <button
         type="button"
         onClick={onToggle}
-        className="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left"
+        className="flex w-full items-center justify-between gap-4 px-4 py-3 text-sm font-semibold text-slate-900"
       >
-        <span className="flex items-center gap-2 text-sm font-semibold text-slate-900">
-          <svg
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={2}
-            className="h-4 w-4 text-slate-500"
-          >
-            <circle cx="12" cy="12" r="10" />
-            <path d="M12 6v6l4 2" />
-          </svg>
-          {title}
-        </span>
-        <svg
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth={2}
-          className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${open ? "rotate-180" : ""}`}
+        {title}
+        <span
+          className={`text-slate-400 transition-transform duration-200 ${open ? "rotate-45" : ""}`}
         >
-          <path d="m6 9 6 6 6-6" />
-        </svg>
+          ＋
+        </span>
       </button>
-      {open && <div className="border-t border-slate-100 px-4 py-4 space-y-4">{children}</div>}
-    </div>
-  );
-}
-
-function SuccessScreen({
-  tenantName,
-  serviceName,
-  staffName,
-  date,
-  time,
-  bookingId,
-  depositAmount,
-  whatsappMsg,
-  tenantPhone,
-}: {
-  tenantName: string;
-  serviceName: string | null | undefined;
-  staffName: string | null | undefined;
-  date: string | null;
-  time: string | null;
-  bookingId: string;
-  depositAmount: number | null;
-  whatsappMsg: string | null;
-  tenantPhone: string | null;
-}) {
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-[#fafafa] p-4">
-      <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-sm">
-        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-50 text-emerald-600">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} className="h-7 w-7">
-            <path d="M20 6 9 17l-5-5" />
-          </svg>
-        </div>
-        <h2 className="mt-4 text-2xl font-bold text-slate-900">¡Turno reservado con éxito!</h2>
-        <p className="mt-2 text-slate-600">
-          {serviceName}
-          {staffName ? ` · ${staffName}` : ""}
-        </p>
-        <p className="mt-1 text-slate-600">
-          {date} {time ? formatTime(time) : ""}
-        </p>
-        <p className="mt-4 text-sm text-slate-500">
-          Comprobante recibido. {tenantName} va a validar tu pago y confirmar por WhatsApp.
-          Referencia: <span className="font-mono">{bookingId.slice(0, 8)}</span>
-        </p>
-        {depositAmount != null && (
-          <div className="mt-5 rounded-xl bg-amber-50 px-4 py-3 text-left text-sm">
-            <p className="font-semibold text-amber-800">Seña pendiente de validación</p>
-            <p className="mt-1 text-amber-700">
-              Adjuntaste la seña de{" "}
-              <span className="font-semibold">{formatCurrency(depositAmount)}</span>.{" "}
-              {tenantName} va a validarla y confirmar tu turno por WhatsApp.
-            </p>
-          </div>
-        )}
-        {whatsappMsg && tenantPhone && (
-          <a
-            href={whatsappMsg}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mt-5 inline-flex items-center justify-center gap-2 rounded-xl bg-[#25D366] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#1fb958]"
-          >
-            Confirmar por WhatsApp
-          </a>
-        )}
-      </div>
-    </div>
-  );
-}
-
-const inputClass =
-  "w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-500 focus:outline-none";
-
-function Field({
-  label,
-  name,
-  error,
-  children,
-}: {
-  label: string;
-  name: string;
-  error?: string[];
-  children: React.ReactNode;
-}) {
-  return (
-    <div>
-      <label htmlFor={name} className="mb-1 block text-sm font-medium text-slate-700">
-        {label}
-      </label>
-      {children}
-      {error && <p className="mt-1 text-xs text-red-600">{error[0]}</p>}
+      {open && <div className="border-t border-slate-200 px-4 py-4">{children}</div>}
     </div>
   );
 }
