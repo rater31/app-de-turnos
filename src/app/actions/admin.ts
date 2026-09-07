@@ -5,9 +5,10 @@ import { requireSuperAdmin } from "@/lib/auth";
 import {
   setTenantStatus,
   setUserRole,
-  setPaymentStatus,
   setSubscriptionPaymentStatus,
   setSubscriptionStatus,
+  setTenantPlanAccess,
+  deleteAdminUser,
 } from "@/lib/db/api";
 
 export async function cambiarEstadoNegocio(tenantId: string, status: "active" | "inactive") {
@@ -22,10 +23,22 @@ export async function cambiarRolUsuario(userId: string, role: "owner" | "superad
   revalidatePath("/admin/usuarios");
 }
 
-export async function marcarPagoSenia(paymentId: string, status: "paid" | "refunded") {
+export async function eliminarUsuario(userId: string) {
+  const session = await requireSuperAdmin();
+  if (session.id === userId) {
+    return { ok: false as const, message: "No podés eliminar tu propia cuenta." };
+  }
+  const result = await deleteAdminUser(userId);
+  revalidatePath("/admin/usuarios");
+  revalidatePath("/admin/negocios");
+  return result;
+}
+
+export async function cambiarPlanNegocio(tenantId: string, plan: "pro" | "gratis") {
   await requireSuperAdmin();
-  await setPaymentStatus(paymentId, status);
-  revalidatePath("/admin/pagos");
+  await setTenantPlanAccess(tenantId, plan);
+  revalidatePath("/admin/suscripciones");
+  revalidatePath("/admin/negocios");
 }
 
 export async function validarPagoPlan(paymentId: string) {

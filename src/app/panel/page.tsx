@@ -1,8 +1,16 @@
 import Link from "next/link";
+import AutoRefresh from "@/components/panel/AutoRefresh";
 import TurnoAcciones from "@/components/panel/TurnoAcciones";
 import TurnoDetalle from "@/components/panel/TurnoDetalle";
 import { requireUser } from "@/lib/auth";
-import { countRows, listBookings } from "@/lib/db/api";
+import {
+  countRows,
+  countTenantMonthlyDeposits,
+  FREE_DEPOSIT_MONTHLY_LIMIT,
+  getSubscription,
+  listBookings,
+  tenantAccess,
+} from "@/lib/db/api";
 import { formatCurrency, formatDate, formatTime, whatsappLinkWithText } from "@/lib/utils";
 
 const STATUS_LABEL: Record<string, { label: string; cls: string }> = {
@@ -15,6 +23,9 @@ const STATUS_LABEL: Record<string, { label: string; cls: string }> = {
 
 export default async function PanelHome() {
   const user = await requireUser();
+  const access = tenantAccess(user.tenant, await getSubscription(user.tenant.id));
+  const depositCount =
+    access === "gratis" ? await countTenantMonthlyDeposits(user.tenant.id) : null;
   const [list, countServices, countStaff, countClients] = await Promise.all([
     listBookings(user.tenant.id),
     countRows(user.tenant.id, "services"),
@@ -31,6 +42,27 @@ export default async function PanelHome() {
 
   return (
     <div className="space-y-6">
+      <AutoRefresh />
+      {depositCount !== null && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4">
+          <div>
+            <p className="text-sm font-semibold text-amber-900">
+              Señas del mes: {depositCount} de {FREE_DEPOSIT_MONTHLY_LIMIT}
+            </p>
+            <p className="mt-0.5 text-xs text-amber-800">
+              {depositCount >= FREE_DEPOSIT_MONTHLY_LIMIT
+                ? "Llegaste al límite. Actualizá para seguir cobrando señas."
+                : "Con Premium cobrás señas ilimitadas."}
+            </p>
+          </div>
+          <Link
+            href={`/abonar/${user.tenant.slug}`}
+            className="rounded-lg bg-gradient-to-r from-amber-500 to-orange-600 px-4 py-2 text-xs font-bold text-white shadow transition hover:scale-105"
+          >
+            Actualizar a Premium
+          </Link>
+        </div>
+      )}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {cards.map((c) => (
           <Link
@@ -88,6 +120,17 @@ export default async function PanelHome() {
                     </p>
                     {b.clients?.phone && (
                       <p className="text-xs text-slate-400">{b.clients.phone}</p>
+                    )}
+                    {b.payment && (
+                      <p
+                        className={
+                          b.payment.status === "paid"
+                            ? "text-xs font-semibold text-emerald-600"
+                            : "text-xs font-semibold text-amber-600"
+                        }
+                      >
+                        {b.payment.status === "paid" ? "Seña pagada ✓" : "Seña por validar"}
+                      </p>
                     )}
                   </div>
                 </div>

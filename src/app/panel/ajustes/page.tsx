@@ -1,6 +1,7 @@
 import NegocioForm from "@/components/panel/NegocioForm";
+import ShareButton from "@/components/ShareButton";
 import { requireUser } from "@/lib/auth";
-import { getSubscription } from "@/lib/db/api";
+import { getSubscription, tenantAccess } from "@/lib/db/api";
 
 export const metadata = { title: "Ajustes" };
 
@@ -10,6 +11,8 @@ export default async function AjustesPage({ searchParams }: { searchParams: Sear
   await searchParams;
   const user = await requireUser();
   const subscription = await getSubscription(user.tenant.id);
+  const access = tenantAccess(user.tenant, subscription);
+  const isPro = access === "pro";
 
   return (
     <div className="max-w-2xl space-y-6">
@@ -34,10 +37,12 @@ export default async function AjustesPage({ searchParams }: { searchParams: Sear
               address: user.tenant.address ?? null,
               primary_color: user.tenant.primary_color,
               logo_text: user.tenant.logo_text ?? null,
+              logo_url: user.tenant.logo_url ?? null,
               alias_cbu: user.tenant.alias_cbu ?? null,
               banco: user.tenant.banco ?? null,
               titular: user.tenant.titular ?? null,
             }}
+            isPro={isPro}
           />
         </div>
       </div>
@@ -59,6 +64,11 @@ export default async function AjustesPage({ searchParams }: { searchParams: Sear
           >
             Ver
           </a>
+          <ShareButton
+            path={`/${user.tenant.slug}`}
+            title={`Reservá tu turno en ${user.tenant.name}`}
+            variant="accent"
+          />
         </div>
       </div>
 
@@ -69,24 +79,45 @@ export default async function AjustesPage({ searchParams }: { searchParams: Sear
             <p className="text-sm text-slate-600">
               Plan{" "}
               <span className="font-semibold capitalize">
-                {user.tenant.plan}
+                {access === "pro" ? "Pro" : access === "gratis" ? "Gratis" : user.tenant.plan}
               </span>
               {subscription?.status ? ` · ${subscription.status}` : ""}
             </p>
-            {subscription?.current_period_end && (
+            {subscription?.current_period_end && access === "pro" && (
               <p className="text-xs text-slate-400">
                 Prueba hasta el {new Date(subscription.current_period_end).toLocaleDateString("es-AR")}
               </p>
             )}
-            {user.tenant.plan === "pro" && (
+            {access === "gratis" && (
               <p className="mt-2 max-w-md text-xs text-slate-500">
-                Al vencer la prueba se abona el plan Pro ($15.000/mes) con Mercado Pago.
+                Estás en el plan Gratis con 1 profesional. Pasá a Pro ($8.000/mes) para
+                profesionales ilimitados, recordatorios por email, señas sin límite y tu marca.
+              </p>
+            )}
+            {access === "blocked" && (
+              <p className="mt-2 max-w-md text-xs text-amber-700">
+                Tu prueba venció y el plan no está pago. Tu página dejó de tomar turnos; aboná
+                para reactivarla.
+              </p>
+            )}
+            {access === "pro" && user.tenant.plan === "pro" && (
+              <p className="mt-2 max-w-md text-xs text-slate-500">
+                Al vencer la prueba se abona el plan Pro ($8.000/mes) para seguir operando.
               </p>
             )}
           </div>
-          <span className="rounded-full bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700">
-            {user.tenant.plan === "pro" ? "Pago al vencer la prueba" : "Plan gratuito"}
-          </span>
+          {access === "blocked" ? (
+            <a
+              href={`/abonar/${user.tenant.slug}`}
+              className="shrink-0 rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800 transition hover:bg-amber-200"
+            >
+              Abonar ahora
+            </a>
+          ) : (
+            <span className="rounded-full bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700">
+              {access === "pro" ? "Pago al vencer la prueba" : "Plan gratuito"}
+            </span>
+          )}
         </div>
       </div>
     </div>

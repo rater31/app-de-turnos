@@ -28,6 +28,7 @@ export type SessionUser = {
     alias_cbu: string | null;
     banco: string | null;
     titular: string | null;
+    trial_ends_at: string | null;
   } | null;
 };
 
@@ -64,6 +65,7 @@ export const getUser = cache(async (): Promise<SessionUser | null> => {
           alias_cbu: tenant.alias_cbu,
           banco: tenant.banco,
           titular: tenant.titular,
+          trial_ends_at: tenant.trial_ends_at,
         }
       : null,
   };

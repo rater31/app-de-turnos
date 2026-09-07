@@ -12,11 +12,15 @@ import {
   deleteHours,
   deleteSellerAccount,
   deleteService,
+  getSubscription,
   setServiceActive,
   setStaffActive,
+  tenantAccess,
+  updateBookingPaymentStatus,
   updateBookingStatus,
   updateService,
   updateTenant,
+  uploadLogo,
 } from "@/lib/db/api";
 
 // ---------------------------------------------------------------------------
@@ -35,6 +39,12 @@ export async function eliminarTurno(bookingId: string) {
   revalidatePath("/panel");
 }
 
+export async function validarSeña(paymentId: string) {
+  const user = await requireUser();
+  await updateBookingPaymentStatus(user.tenant.id, paymentId, "paid");
+  revalidatePath("/panel");
+}
+
 // ---------------------------------------------------------------------------
 // Servicios
 // ---------------------------------------------------------------------------
@@ -48,7 +58,9 @@ const ServicioSchema = z.object({
   price: z.coerce.number().min(0),
   deposit_amount: z.coerce
     .number()
-    .min(MIN_DEPOSIT, `La seña mínima es de $${MIN_DEPOSIT}`),
+    .int()
+    .min(MIN_DEPOSIT, `La seña mínima es de $${MIN_DEPOSIT}`)
+    .optional(),
 });
 
 export type ServicioState = { ok?: boolean; errors?: Record<string, string[]>; message?: string };
@@ -71,6 +83,7 @@ export async function crearServicio(
 
   const user = await requireUser();
   const staffIds = formData.getAll("staffIds").map(String);
+  const quiereSeña = formData.get("requires_deposit") === "true";
 
   const result = await createService({
     tenantId: user.tenant.id,
@@ -78,8 +91,8 @@ export async function crearServicio(
     description: parsed.data.description,
     durationMinutes: parsed.data.duration_minutes,
     price: parsed.data.price,
-    requiresDeposit: true,
-    depositAmount: parsed.data.deposit_amount,
+    requiresDeposit: quiereSeña,
+    depositAmount: quiereSeña ? (parsed.data.deposit_amount ?? MIN_DEPOSIT) : null,
     staffIds,
   });
 
@@ -111,14 +124,15 @@ export async function actualizarServicio(
 
   const user = await requireUser();
   const staffIds = formData.getAll("staffIds").map(String);
+  const quiereSeña = formData.get("requires_deposit") === "true";
 
   const result = await updateService(user.tenant.id, id, {
     name: parsed.data.name,
     description: parsed.data.description,
     durationMinutes: parsed.data.duration_minutes,
     price: parsed.data.price,
-    requiresDeposit: true,
-    depositAmount: parsed.data.deposit_amount,
+    requiresDeposit: quiereSeña,
+    depositAmount: quiereSeña ? (parsed.data.deposit_amount ?? MIN_DEPOSIT) : null,
     staffIds,
   });
 
@@ -269,6 +283,7 @@ const NegocioSchema = z.object({
   address: z.string().optional(),
   primary_color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
   logo_text: z.string().optional(),
+  logo_url: z.string().optional(),
   alias_cbu: z.string().optional(),
   banco: z.string().optional(),
   titular: z.string().optional(),
@@ -287,6 +302,7 @@ export async function actualizarNegocio(
     address: formData.get("address") || undefined,
     primary_color: formData.get("primary_color") || "#0f172a",
     logo_text: formData.get("logo_text") || undefined,
+    logo_url: formData.get("logo_url") || undefined,
     alias_cbu: formData.get("alias_cbu") || undefined,
     banco: formData.get("banco") || undefined,
     titular: formData.get("titular") || undefined,
@@ -294,20 +310,56 @@ export async function actualizarNegocio(
   if (!parsed.success) return { errors: parsed.error.flatten().fieldErrors };
 
   const user = await requireUser();
+  const isPro =
+    tenantAccess(user.tenant, await getSubscription(user.tenant.id)) === "pro";
+
   await updateTenant(user.tenant.id, {
     name: parsed.data.name,
     description: parsed.data.description || null,
     phone: parsed.data.phone || null,
     address: parsed.data.address || null,
     primary_color: parsed.data.primary_color,
-    logo_text: parsed.data.logo_text?.trim() ? parsed.data.logo_text.trim() : null,
+    logo_text: isPro && parsed.data.logo_text?.trim() ? parsed.data.logo_text.trim() : null,
+    logo_url: isPro && parsed.data.logo_url?.trim() ? parsed.data.logo_url.trim() : null,
     alias_cbu: parsed.data.alias_cbu || null,
     banco: parsed.data.banco || null,
     titular: parsed.data.titular || null,
   });
 
   revalidatePath("/panel/ajustes");
+  revalidatePath("/");
   return { ok: true };
+}
+
+const ACCEPTED_LOGO_TYPES = ["image/png", "image/jpeg", "image/jpg", "image/webp", "image/svg+xml"];
+const MAX_LOGO_BYTES = 2 * 1024 * 1024;
+
+export type LogoState = { ok?: boolean; url?: string; message?: string };
+
+export async function subirLogo(_prev: LogoState | undefined, formData: FormData): Promise<LogoState> {
+  const file = formData.get("logo");
+  if (!(file instanceof File) || file.size === 0) {
+    return { message: "Elegí un archivo de imagen." };
+  }
+  if (!ACCEPTED_LOGO_TYPES.includes(file.type)) {
+    return { message: "El logo debe ser PNG, JPG, WEBP o SVG." };
+  }
+  if (file.size > MAX_LOGO_BYTES) {
+    return { message: "El logo no puede superar los 2MB." };
+  }
+
+  const user = await requireUser();
+  const isPro =
+    tenantAccess(user.tenant, await getSubscription(user.tenant.id)) === "pro";
+  if (!isPro) {
+    return { message: "El logo de tu marca es una función del plan Pro." };
+  }
+  const url = await uploadLogo(user.tenant.id, file);
+  if (!url) {
+    return { message: "No se pudo subir el logo. Intentá de nuevo." };
+  }
+
+  return { ok: true, url };
 }
 
 export type MercadoPagoState = { ok?: boolean; message?: string };

@@ -62,7 +62,47 @@ function dbTenant(t: any): DBTenant | null {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Acceso por plan: "pro" (pago o con prueba vigente), "gratis" (plan gratuito,
+// 1 profesional, sin funciones Pro) o "blocked" (negocio deshabilitado o plan
+// Pro sin pago con la prueba vencida).
+// ---------------------------------------------------------------------------
+
+export type TenantAccess = "pro" | "gratis" | "blocked";
+
+export function tenantAccess(
+  tenant: { plan: string; status: string; trial_ends_at: string | null },
+  sub?: { status: string } | null,
+): TenantAccess {
+  if (tenant.status !== "active") return "blocked";
+  const paid = sub?.status === "active";
+  if (paid) return "pro";
+  const trialActive =
+    tenant.trial_ends_at != null &&
+    tenant.trial_ends_at !== "" &&
+    new Date(tenant.trial_ends_at).getTime() > Date.now();
+  if (trialActive) return "pro";
+  if (tenant.plan === "pro") return "blocked";
+  return "gratis";
+}
+
 const RECEIPT_BUCKET = "comprobantes";
+
+// Límite de señas por mes para el plan Gratis (opción B: usar señas como embudo a Pro).
+export const FREE_DEPOSIT_MONTHLY_LIMIT = 10;
+
+// Cantidad de señas (pagadas o pendientes) registradas por un negocio en el mes actual.
+export async function countTenantMonthlyDeposits(tenantId: string): Promise<number> {
+  const client = admin();
+  const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString();
+  const { count } = await client
+    .from("payments")
+    .select("id", { count: "exact", head: true })
+    .eq("tenant_id", tenantId)
+    .gte("created_at", monthStart)
+    .in("status", ["pending", "paid"]);
+  return count ?? 0;
+}
 
 // Sube el comprobante de la seña a Supabase Storage (bucket privado).
 async function uploadReceipt(
@@ -91,6 +131,34 @@ async function uploadReceipt(
 
   const { data: urlData } = await client.storage.from(RECEIPT_BUCKET).createSignedUrl(path, 60 * 60 * 24 * 365);
   return urlData?.signedUrl ?? null;
+}
+
+const LOGO_BUCKET = "logos";
+
+// Sube el logo del negocio a Supabase Storage (bucket público). Reemplaza el
+// archivo anterior del tenant (misma ruta) para no acumular versiones.
+export async function uploadLogo(tenantId: string, file: File): Promise<string | null> {
+  const client = admin();
+  const ext = (file.name.split(".").pop() ?? "png").replace(/[^a-zA-Z0-9]/g, "").slice(0, 6);
+  const path = `${tenantId}/logo.${ext}`;
+  const bytes = Buffer.from(await file.arrayBuffer());
+
+  const { error: bucketError } = await client.storage.createBucket(LOGO_BUCKET, {
+    public: true,
+  });
+  if (bucketError && !/already exists/i.test(bucketError.message)) {
+    return null;
+  }
+  await client.storage.updateBucket(LOGO_BUCKET, { public: true });
+
+  const { error } = await client.storage.from(LOGO_BUCKET).upload(path, bytes, {
+    contentType: file.type,
+    upsert: true,
+  });
+  if (error) return null;
+
+  const { data } = client.storage.from(LOGO_BUCKET).getPublicUrl(path);
+  return data.publicUrl ?? null;
 }
 
 // ---------------------------------------------------------------------------
@@ -237,6 +305,7 @@ export type PublicBookingData = {
   staff: StaffMember[];
   serviceStaff: ServiceStaff[];
   hours: BusinessHours[];
+  access: TenantAccess;
 };
 
 export async function getPublicBookingData(slug: string): Promise<PublicBookingData | null> {
@@ -248,6 +317,18 @@ export async function getPublicBookingData(slug: string): Promise<PublicBookingD
     .eq("status", "active")
     .maybeSingle();
   if (!tenant) return null;
+
+  const { data: sub } = await client
+    .from("subscriptions")
+    .select("status")
+    .eq("tenant_id", tenant.id)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const access = tenantAccess(tenant, sub);
+  if (access === "blocked") return null;
+
+  const pro = access === "pro";
 
   const [{ data: services }, { data: staff }, { data: hours }, { data: allLinks }] =
     await Promise.all([
@@ -267,11 +348,12 @@ export async function getPublicBookingData(slug: string): Promise<PublicBookingD
       name: tenant.name,
       slug: tenant.slug,
       description: tenant.description ?? null,
-      logo_url: tenant.logo_url ?? null,
-      logo_text: tenant.logo_text ?? null,
-      primary_color: tenant.primary_color,
+      logo_url: pro ? (tenant.logo_url ?? null) : null,
+      logo_text: pro ? (tenant.logo_text ?? null) : null,
+      primary_color: pro ? tenant.primary_color : "#334155",
       address: tenant.address ?? null,
       phone: tenant.phone ?? null,
+      // El alias de transferencia se muestra en ambos planes (seña como embudo a Pro).
       alias_cbu: tenant.alias_cbu ?? null,
       banco: tenant.banco ?? null,
       titular: tenant.titular ?? null,
@@ -303,6 +385,7 @@ export async function getPublicBookingData(slug: string): Promise<PublicBookingD
       closes: h.closes,
       active: h.active,
     })),
+    access,
   };
 }
 
@@ -336,11 +419,21 @@ export async function serviceRequiresDeposit(
   const client = admin();
   const { data: tenant } = await client
     .from("tenants")
-    .select("id")
+    .select("id, plan, status, trial_ends_at")
     .eq("slug", slug)
     .eq("status", "active")
     .maybeSingle();
   if (!tenant) return false;
+
+  const { data: sub } = await client
+    .from("subscriptions")
+    .select("status")
+    .eq("tenant_id", tenant.id)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  // Un negocio bloqueado no puede recibir señas.
+  if (tenantAccess(tenant, sub) === "blocked") return false;
 
   const { data: service } = await client
     .from("services")
@@ -379,11 +472,24 @@ export async function createPublicBooking(input: {
 
   const { data: tenant } = await client
     .from("tenants")
-    .select("id")
+    .select("id, plan, status, trial_ends_at")
     .eq("slug", input.slug)
     .eq("status", "active")
     .maybeSingle();
   if (!tenant) return { ok: false, message: "El negocio no existe." };
+
+  const { data: activeSub } = await client
+    .from("subscriptions")
+    .select("status")
+    .eq("tenant_id", tenant.id)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const access = tenantAccess(tenant, activeSub);
+  if (access === "blocked") {
+    return { ok: false, message: "El negocio no está disponible en este momento." };
+  }
+  const pro = access === "pro";
 
   const [{ data: service }, { data: staff }, { data: link }] = await Promise.all([
     client
@@ -410,6 +516,22 @@ export async function createPublicBooking(input: {
   if (!service) return { ok: false, message: "El servicio no está disponible." };
   if (!staff) return { ok: false, message: "El profesional no está disponible." };
   if (!link) return { ok: false, message: "Ese profesional no brinda ese servicio." };
+
+  const wantsDeposit = Boolean(
+    service.requires_deposit && service.deposit_amount && Number(service.deposit_amount) > 0,
+  );
+
+  // Plan Gratis: señas permitidas pero con tope mensual (embudo a Pro).
+  if (wantsDeposit && access === "gratis") {
+    const monthDeposits = await countTenantMonthlyDeposits(tenant.id);
+    if (monthDeposits >= FREE_DEPOSIT_MONTHLY_LIMIT) {
+      return {
+        ok: false,
+        message:
+          "Este servicio requiere una seña y el negocio alcanzó el límite de señas de este mes. Volvé a intentarlo el mes que viene o contactá al negocio.",
+      };
+    }
+  }
 
   const startsAtDb = toDbTimestamp(startDate);
   const endsAtDb = toDbTimestamp(new Date(startDate.getTime() + service.duration_minutes * 60_000));
@@ -467,8 +589,20 @@ export async function createPublicBooking(input: {
     return { ok: false, message: "Ese horario ya fue tomado. Elegí otro." };
   }
 
-  const depositAmount =
-    service.requires_deposit && service.deposit_amount ? Number(service.deposit_amount) : null;
+  // Programar recordatorio por email 24 h antes del turno (best effort, plan Pro).
+  const clientEmail = input.clientEmail?.trim();
+  if (pro && clientEmail) {
+    const scheduledFor = new Date(startDate.getTime() - 24 * 60 * 60 * 1000).toISOString();
+    await client.from("reminders").insert({
+      tenant_id: tenant.id,
+      booking_id: booking.id,
+      channel: "email",
+      status: "pending",
+      scheduled_for: scheduledFor,
+    });
+  }
+
+  const depositAmount = wantsDeposit ? Number(service.deposit_amount) : null;
 
   if (depositAmount !== null && depositAmount > 0) {
     if (!input.receipt) {
@@ -513,7 +647,7 @@ export async function listBookings(tenantId: string): Promise<BookingRow[]> {
   const { data } = await svc()
     .from("bookings")
     .select(
-      "id, starts_at, ends_at, status, notes, services(name, duration_minutes, price), staff_members(name, color), clients(name, phone, email), payments(receipt_url)",
+      "id, starts_at, ends_at, status, notes, services(name, duration_minutes, price), staff_members(name, color), clients(name, phone, email), payments(id, receipt_url, status)",
     )
     .eq("tenant_id", tenantId)
     .order("starts_at", { ascending: true });
@@ -534,7 +668,11 @@ export async function listBookings(tenantId: string): Promise<BookingRow[]> {
     staff_members: b.staff_members ? { name: b.staff_members.name, color: b.staff_members.color } : null,
     clients: b.clients ? { name: b.clients.name, phone: b.clients.phone, email: b.clients.email } : null,
     payment: Array.isArray(b.payments) && b.payments[0]
-      ? { receipt_url: b.payments[0].receipt_url ?? null }
+      ? {
+          id: b.payments[0].id,
+          status: b.payments[0].status ?? "pending",
+          receipt_url: b.payments[0].receipt_url ?? null,
+        }
       : null,
   }));
 }
@@ -829,6 +967,30 @@ export async function setSubscriptionPaymentStatus(
     .eq("id", paymentId);
   if (status === "paid" && payment) {
     await client.from("tenants").update({ status: "active" }).eq("id", payment.tenant_id);
+    const { data: period } = await client
+      .from("subscription_payments")
+      .select("period_end, period_start")
+      .eq("id", paymentId)
+      .maybeSingle();
+    const { data: sub } = await client
+      .from("subscriptions")
+      .select("id")
+      .eq("tenant_id", payment.tenant_id)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (sub) {
+      const now = new Date();
+      const periodEnd =
+        period?.period_end ??
+        new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString();
+      const periodStart =
+        period?.period_start ?? (periodEnd ? new Date(new Date(periodEnd).getTime() - 30 * 24 * 60 * 60 * 1000).toISOString() : now.toISOString());
+      await client
+        .from("subscriptions")
+        .update({ status: "active", current_period_start: periodStart, current_period_end: periodEnd })
+        .eq("id", sub.id);
+    }
   }
 }
 
@@ -848,6 +1010,61 @@ export async function setSubscriptionStatus(tenantId: string, status: string, pe
     current_period_end: periodEnd ?? null,
   };
   await client.from("subscriptions").update(upd).eq("id", sub.id);
+}
+
+// Superadmin: pasa un negocio de plan Free a Premium (o viceversa).
+// Premium = subscription activa con período vigente -> tenantAccess devuelve "pro".
+// Free = subscription cancelada y prueba vencida, plan "gratis" -> tenantAccess "gratis".
+export async function setTenantPlanAccess(tenantId: string, plan: "pro" | "gratis") {
+  const client = admin();
+  const { data: sub } = await client
+    .from("subscriptions")
+    .select("id")
+    .eq("tenant_id", tenantId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (plan === "pro") {
+    const now = new Date();
+    const periodEnd = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString();
+    if (sub) {
+      await client
+        .from("subscriptions")
+        .update({
+          plan: "pro",
+          status: "active",
+          current_period_start: now.toISOString(),
+          current_period_end: periodEnd,
+          updated_at: now.toISOString(),
+        })
+        .eq("id", sub.id);
+    } else {
+      await client.from("subscriptions").insert({
+        tenant_id: tenantId,
+        plan: "pro",
+        status: "active",
+        current_period_start: now.toISOString(),
+        current_period_end: periodEnd,
+      });
+    }
+    await client.from("tenants").update({ plan: "pro", status: "active" }).eq("id", tenantId);
+  } else {
+    const past = new Date(Date.now() - 1000).toISOString();
+    if (sub) {
+      await client
+        .from("subscriptions")
+        .update({
+          plan: "gratis",
+          status: "cancelled",
+          current_period_start: null,
+          current_period_end: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", sub.id);
+    }
+    await client.from("tenants").update({ plan: "gratis", status: "active", trial_ends_at: past }).eq("id", tenantId);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -888,72 +1105,108 @@ export async function setUserRole(userId: string, role: "owner" | "superadmin") 
   await admin().from("profiles").update({ role }).eq("id", userId);
 }
 
+// Elimina el usuario de Supabase Auth (borra su perfil por cascada) y, si era
+// el último integrante de un negocio, borra también el negocio completo.
+export async function deleteAdminUser(
+  userId: string,
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  const client = admin();
+
+  const { data: profile } = await client
+    .from("profiles")
+    .select("tenant_id, role")
+    .eq("id", userId)
+    .maybeSingle();
+  if (!profile) return { ok: false, message: "El usuario no existe." };
+
+  const { error: authError } = await client.auth.admin.deleteUser(userId);
+  if (authError) return { ok: false, message: authError.message };
+
+  const tenantId = profile.tenant_id;
+  if (tenantId) {
+    const { data: tenants } = await client.from("tenants").select("id").eq("id", tenantId);
+    if (tenants && tenants.length > 0) {
+      const { data: remaining } = await client
+        .from("profiles")
+        .select("id")
+        .eq("tenant_id", tenantId)
+        .limit(1);
+      if (!remaining || remaining.length === 0) {
+        await removeTenantStorage(client, tenantId);
+        await client.from("tenants").delete().eq("id", tenantId);
+      }
+    }
+  }
+  return { ok: true };
+}
+
+// Best-effort: borra los archivos del negocio en los buckets de comprobantes y logos.
+async function removeTenantStorage(client: SupabaseClient, tenantId: string) {
+  for (const bucket of [RECEIPT_BUCKET, LOGO_BUCKET]) {
+    try {
+      const { data: files } = await client.storage.from(bucket).list(tenantId);
+      if (files && files.length > 0) {
+        await client.storage.from(bucket).remove(files.map((f) => `${tenantId}/${f.name}`));
+      }
+    } catch {
+      // best-effort: si el bucket o la carpeta no existen, seguir.
+    }
+  }
+}
+
 export type AdminPaymentRow = {
   id: string;
-  type: "senia" | "plan";
   amount: number;
   status: string;
-  method: string;
   receipt_url: string | null;
   tenant_id: string;
   tenant_name: string;
   tenant_slug: string;
-  booking_id: string | null;
-  client_name: string | null;
+  owner_email: string | null;
+  owner_name: string | null;
   created_at: string;
   processed_at: string | null;
 };
 
 export async function listAdminPayments(): Promise<AdminPaymentRow[]> {
   const client = admin();
-  const { data: payments } = await client
-    .from("payments")
-    .select("*, tenants(name, slug), bookings(clients(name), services(name))")
-    .order("created_at", { ascending: false });
   const { data: subPayments } = await client
     .from("subscription_payments")
-    .select("*, tenants(name, slug)")
+    .select("*, tenants(name, slug, profiles(email, full_name, role))")
     .order("created_at", { ascending: false });
 
-  const senias: AdminPaymentRow[] = (payments ?? []).map((p: any) => ({
-    id: p.id,
-    type: "senia",
-    amount: Number(p.amount),
-    status: p.status,
-    method: p.method,
-    receipt_url: p.receipt_url ?? null,
-    tenant_id: p.tenant_id,
-    tenant_name: p.tenants?.name ?? "—",
-    tenant_slug: p.tenants?.slug ?? "",
-    booking_id: p.booking_id,
-    client_name: p.bookings?.clients?.name ?? null,
-    created_at: p.created_at,
-    processed_at: null,
-  }));
+  type RawSubscriptionPayment = {
+    id: string;
+    amount: number | string;
+    status: string;
+    receipt_url: string | null;
+    tenant_id: string;
+    created_at: string;
+    processed_at: string | null;
+    tenants?: {
+      name: string | null;
+      slug: string | null;
+      profiles?: { email: string | null; full_name: string | null; role: string }[] | null;
+    } | null;
+  };
 
-  const planes: AdminPaymentRow[] = (subPayments ?? []).map((p: any) => ({
-    id: p.id,
-    type: "plan",
-    amount: Number(p.amount),
-    status: p.status,
-    method: "local",
-    receipt_url: p.receipt_url ?? null,
-    tenant_id: p.tenant_id,
-    tenant_name: p.tenants?.name ?? "—",
-    tenant_slug: p.tenants?.slug ?? "",
-    booking_id: null,
-    client_name: null,
-    created_at: p.created_at,
-    processed_at: p.processed_at ?? null,
-  }));
-
-  return [...planes, ...senias].sort(
-    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
-  );
-}
-
-export async function setPaymentStatus(paymentId: string, status: string) {
-  await admin().from("payments").update({ status }).eq("id", paymentId);
+  return ((subPayments ?? []) as RawSubscriptionPayment[]).map((p) => {
+    const profiles = p.tenants?.profiles ?? [];
+    const owner = profiles.find((u) => u.role === "owner") ?? profiles[0] ?? null;
+    return {
+      id: p.id,
+      amount: Number(p.amount),
+      status: p.status,
+      receipt_url: p.receipt_url ?? null,
+      tenant_id: p.tenant_id,
+      tenant_name: p.tenants?.name ?? "—",
+      tenant_slug: p.tenants?.slug ?? "",
+      owner_email: owner?.email ?? null,
+      owner_name: owner?.full_name ?? null,
+      created_at: p.created_at,
+      processed_at: p.processed_at ?? null,
+    };
+  });
 }
 
 export type AdminSubscriptionRow = {
@@ -1120,7 +1373,7 @@ export async function getPlanPaymentData(slug: string): Promise<PlanPaymentData 
     plan: sub?.plan ?? "pro",
     subscriptionStatus: sub?.status ?? "trial",
     currentPeriodEnd: sub?.current_period_end ?? null,
-    amount: 15000,
+    amount: 8000,
     bank,
   };
 }
@@ -1132,9 +1385,7 @@ export async function getPlanPaymentData(slug: string): Promise<PlanPaymentData 
 export type AdminDashboardStats = {
   tenants: { total: number; active: number; inactive: number };
   users: { total: number; owners: number; superadmins: number };
-  bookings: { total: number; month: number };
   revenue: { total: number; month: number };
-  pendingPayments: number;
   planPending: number;
 };
 
@@ -1146,41 +1397,38 @@ export async function getAdminDashboardStats(): Promise<AdminDashboardStats> {
     client.from("profiles").select("id, role"),
   ]);
 
-  const activeCount = (tenants ?? []).filter((t: any) => t.status === "active").length;
-  const inactiveCount = (tenants ?? []).length - activeCount;
-  const owners = (users ?? []).filter((u: any) => u.role === "owner").length;
-  const superadmins = (users ?? []).filter((u: any) => u.role === "superadmin").length;
+  type DashboardTenant = { id: string; status: string };
+  type DashboardUser = { id: string; role: string };
+  type DashboardSubPayment = { amount: number | string; status: string; created_at: string };
+
+  const tenantRows = (tenants ?? []) as DashboardTenant[];
+  const userRows = (users ?? []) as DashboardUser[];
+
+  const activeCount = tenantRows.filter((t) => t.status === "active").length;
+  const inactiveCount = tenantRows.length - activeCount;
+  const owners = userRows.filter((u) => u.role === "owner").length;
+  const superadmins = userRows.filter((u) => u.role === "superadmin").length;
 
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
 
-  const [{ data: bookings }, { data: monthBookings }, { data: payments }, { data: monthPayments }] =
-    await Promise.all([
-      client.from("bookings").select("id"),
-      client.from("bookings").select("id").gte("starts_at", monthStart),
-      client.from("payments").select("amount, status, created_at"),
-      client.from("payments").select("amount, created_at").gte("created_at", monthStart),
-    ]);
-
+  // Los ingresos son solo de las suscripciones abonadas, no de las señas.
   const [{ data: subPayments }, { data: pendingPlan }] = await Promise.all([
-    client.from("subscription_payments").select("amount, status"),
+    client.from("subscription_payments").select("amount, status, created_at"),
     client.from("subscription_payments").select("id").eq("status", "pending"),
   ]);
 
-  const totalRevenue =
-    (payments ?? []).filter((p: any) => p.status === "paid").reduce((s, p: any) => s + Number(p.amount), 0) +
-    (subPayments ?? []).filter((p: any) => p.status === "paid").reduce((s, p: any) => s + Number(p.amount), 0);
-
-  const monthRevenue =
-    (monthPayments ?? []).reduce((s, p: any) => s + Number(p.amount), 0) +
-    (subPayments ?? []).filter((p: any) => p.status === "paid").reduce((s, p: any) => s + Number(p.amount), 0);
+  const subRows = (subPayments ?? []) as DashboardSubPayment[];
+  const paid = subRows.filter((p) => p.status === "paid");
+  const totalRevenue = paid.reduce((s, p) => s + Number(p.amount), 0);
+  const monthRevenue = paid
+    .filter((p) => p.created_at >= monthStart)
+    .reduce((s, p) => s + Number(p.amount), 0);
 
   return {
-    tenants: { total: (tenants ?? []).length, active: activeCount, inactive: inactiveCount },
-    users: { total: (users ?? []).length, owners, superadmins },
-    bookings: { total: (bookings ?? []).length, month: (monthBookings ?? []).length },
+    tenants: { total: tenantRows.length, active: activeCount, inactive: inactiveCount },
+    users: { total: userRows.length, owners, superadmins },
     revenue: { total: totalRevenue, month: monthRevenue },
-    pendingPayments: (payments ?? []).filter((p: any) => p.status === "pending").length,
     planPending: (pendingPlan ?? []).length,
   };
 }
@@ -1276,7 +1524,36 @@ export async function createStaff(
   name: string,
   color: string,
 ): Promise<{ ok: true } | { ok: false; message: string }> {
-  const { error } = await svc()
+  const client = svc();
+  const { data: tenant } = await client
+    .from("tenants")
+    .select("plan, status, trial_ends_at")
+    .eq("id", tenantId)
+    .maybeSingle();
+  if (tenant) {
+    const { data: sub } = await client
+      .from("subscriptions")
+      .select("status")
+      .eq("tenant_id", tenantId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (tenantAccess(tenant, sub) === "gratis") {
+      const { count } = await client
+        .from("staff_members")
+        .select("id", { count: "exact", head: true })
+        .eq("tenant_id", tenantId);
+      if ((count ?? 0) >= 1) {
+        return {
+          ok: false,
+          message:
+            "El plan Gratis incluye 1 profesional. Sumá más con el plan Pro.",
+        };
+      }
+    }
+  }
+
+  const { error } = await client
     .from("staff_members")
     .insert({ tenant_id: tenantId, name, color, active: true });
   if (error) {
@@ -1336,6 +1613,7 @@ export async function updateTenant(
     address: string | null;
     primary_color: string;
     logo_text?: string | null;
+    logo_url?: string | null;
     alias_cbu?: string | null;
     banco?: string | null;
     titular?: string | null;
@@ -1350,6 +1628,7 @@ export async function updateTenant(
       address: data.address,
       primary_color: data.primary_color,
       logo_text: data.logo_text ?? null,
+      logo_url: data.logo_url ?? null,
       alias_cbu: data.alias_cbu ?? null,
       banco: data.banco ?? null,
       titular: data.titular ?? null,
@@ -1362,6 +1641,20 @@ export async function updateBookingStatus(tenantId: string, id: string, status: 
   const valid = ["pending", "confirmed", "completed", "cancelled", "no_show"];
   if (!valid.includes(status)) return;
   await svc().from("bookings").update({ status }).eq("id", id).eq("tenant_id", tenantId);
+}
+
+// El dueño valida la seña de un turno de su negocio (RLS: payments_all del tenant).
+export async function updateBookingPaymentStatus(
+  tenantId: string,
+  paymentId: string,
+  status: "paid" | "refunded",
+) {
+  const { error } = await svc()
+    .from("payments")
+    .update({ status })
+    .eq("id", paymentId)
+    .eq("tenant_id", tenantId);
+  return error ? { ok: false as const, message: error.message } : { ok: true as const };
 }
 
 export async function deleteBooking(tenantId: string, id: string) {

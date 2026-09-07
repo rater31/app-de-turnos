@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useActionState } from "react";
+import ShareButton from "@/components/ShareButton";
 import { reservar, type ReservaState } from "@/app/actions/booking";
 import type { BusinessHours, Service, ServiceStaff, StaffMember, TenantPublic } from "@/lib/types";
 import {
@@ -242,6 +243,12 @@ export default function BookingWizard({ tenant, services, staff, serviceStaff, h
                   <div className="min-w-0 flex-1">
                     <h1 className="font-bold tracking-tight text-xl sm:text-2xl">{tenant.name}</h1>
                     <p className="text-xs mt-1 opacity-80">{tenant.description || "Reservá tu turno online"}</p>
+                  </div>
+                  <div className="shrink-0">
+                    <ShareButton
+                      path={`/${tenant.slug}`}
+                      title={`Reservá tu turno en ${tenant.name}`}
+                    />
                   </div>
                 </div>
 

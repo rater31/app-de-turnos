@@ -1,12 +1,14 @@
 import ServicioForm from "@/components/panel/ServicioForm";
 import ServicioRow from "@/components/panel/ServicioRow";
 import { requireUser } from "@/lib/auth";
-import { listServices, listStaff } from "@/lib/db/api";
+import { getSubscription, listServices, listStaff, tenantAccess } from "@/lib/db/api";
 
 export const metadata = { title: "Servicios" };
 
 export default async function ServiciosPage() {
   const user = await requireUser();
+  const access = tenantAccess(user.tenant, await getSubscription(user.tenant.id));
+  const isPro = access === "pro";
   const [services, staff] = await Promise.all([
     listServices(user.tenant.id),
     listStaff(user.tenant.id),
@@ -24,7 +26,7 @@ export default async function ServiciosPage() {
 
       <div className="grid gap-6 lg:grid-cols-[1fr_380px]">
         <div className="space-y-3">
-          {services.map((s) => <ServicioRow key={s.id} servicio={s} staff={activeStaff} />)}
+          {services.map((s) => <ServicioRow key={s.id} servicio={s} staff={activeStaff} isPro={isPro} />)}
           {services.length === 0 ? (
             <p className="rounded-2xl border border-dashed border-slate-300 p-10 text-center text-sm text-slate-500">
               Sin servicios todavía. Creá el primero con el formulario.
@@ -35,7 +37,7 @@ export default async function ServiciosPage() {
         <div className="h-fit rounded-2xl border border-slate-200 bg-white p-5">
           <h2 className="text-sm font-semibold text-slate-900">Nuevo servicio</h2>
           <div className="mt-4">
-            <ServicioForm staff={activeStaff} />
+            <ServicioForm staff={activeStaff} isPro={isPro} />
           </div>
         </div>
       </div>

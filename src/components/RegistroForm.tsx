@@ -5,7 +5,7 @@ import { onboarding, type OnboardingState } from "@/app/actions/onboarding";
 
 const PLAN_INFO: Record<string, { nombre: string; precio: string }> = {
   gratis: { nombre: "Gratis", precio: "$0" },
-  pro: { nombre: "Pro", precio: "$15.000/mes" },
+  pro: { nombre: "Pro", precio: "$8.000/mes" },
 };
 
 export default function RegistroForm({ plan }: { plan: "pro" | "gratis" | null }) {

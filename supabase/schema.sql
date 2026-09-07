@@ -282,6 +282,10 @@ create index if not exists idx_services_tenant on public.services (tenant_id);
 create index if not exists idx_staff_tenant on public.staff_members (tenant_id);
 create index if not exists idx_hours_tenant_day on public.business_hours (tenant_id, day_of_week);
 create index if not exists idx_clients_tenant on public.clients (tenant_id);
+
+-- Migraciones idempotentes para bases creadas con schemas anteriores.
+-- create table if not exists NO agrega columnas nuevas a tablas existentes.
+alter table public.tenants add column if not exists logo_text text;
 create index if not exists idx_profiles_tenant on public.profiles (tenant_id);
 
 -- ----------------------------------------------------------------------------
@@ -465,3 +469,16 @@ drop trigger if exists trg_profile_onboarding on public.profiles;
 create trigger trg_profile_onboarding
 after insert on public.profiles
 for each row execute function public.profile_onboarding();
+
+-- ----------------------------------------------------------------------------
+-- Storage: bucket público para logos de negocios + lectura pública.
+-- La subida se hace desde el servidor (service_role), solo se habilita la
+-- lectura anónima para que el logo cargue en la página pública.
+-- ----------------------------------------------------------------------------
+insert into storage.buckets (id, name, public)
+values ('logos', 'logos', true)
+on conflict (id) do update set public = true;
+
+drop policy if exists logos_public_read on storage.objects;
+create policy logos_public_read on storage.objects
+  for select using (bucket_id = 'logos');

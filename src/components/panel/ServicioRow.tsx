@@ -14,9 +14,11 @@ type Row = EditableService & {
 export default function ServicioRow({
   servicio,
   staff,
+  isPro,
 }: {
   servicio: Row;
   staff: StaffMember[];
+  isPro: boolean;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -36,6 +38,11 @@ export default function ServicioRow({
           </div>
           <p className="text-sm text-slate-500">
             {servicio.duration_minutes} min · {formatCurrency(servicio.price)}
+            {servicio.requires_deposit && servicio.deposit_amount != null && (
+              <span className="ml-2 inline-block rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-medium text-indigo-700">
+                Seña {formatCurrency(servicio.deposit_amount)}
+              </span>
+            )}
           </p>
           <p className="mt-0.5 text-xs text-slate-400">
             {servicio.service_staff
@@ -87,6 +94,7 @@ export default function ServicioRow({
           <ServicioForm
             staff={staff}
             servicio={servicio}
+            isPro={isPro}
             onSuccess={() => setEditing(false)}
           />
         </div>

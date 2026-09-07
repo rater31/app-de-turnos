@@ -41,7 +41,7 @@ export async function submitPlanPayment(
 
   const result = await createSubscriptionPayment({
     slug: parsed.data.slug,
-    amount: 15000,
+    amount: 8000,
     receipt: parsed.data.receipt,
   });
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useActionState } from "react";
 import { actualizarServicio, crearServicio, type ServicioState } from "@/app/actions/panel";
 import type { StaffMember } from "@/lib/types";
@@ -19,10 +19,12 @@ export type EditableService = {
 export default function ServicioForm({
   staff,
   servicio,
+  isPro,
   onSuccess,
 }: {
   staff: StaffMember[];
   servicio?: EditableService;
+  isPro: boolean;
   onSuccess?: () => void;
 }) {
   const action = servicio ? actualizarServicio : crearServicio;
@@ -31,6 +33,7 @@ export default function ServicioForm({
   const assignedIds = new Set(
     (servicio?.service_staff ?? []).flatMap((s) => s.staff_members.map((m) => m.id)),
   );
+  const [requiresDeposit, setRequiresDeposit] = useState(servicio?.requires_deposit ?? false);
 
   useEffect(() => {
     if (state?.ok && onSuccess) onSuccess();
@@ -94,36 +97,53 @@ export default function ServicioForm({
           />
         </Field>
         <div>
-          <p className="mb-1 text-sm font-medium text-slate-700">Requiere seña</p>
           <div className="flex items-center gap-2 rounded-lg border border-slate-300 bg-slate-50 px-3 py-2">
-            <input type="hidden" name="requires_deposit" value="true" />
-            <span className="text-sm text-slate-700">Sí, seña obligatoria al reservar</span>
+            <input
+              type="checkbox"
+              name="requires_deposit"
+              value="true"
+              id="requires_deposit"
+              checked={requiresDeposit}
+              onChange={(e) => setRequiresDeposit(e.target.checked)}
+              className="h-4 w-4 accent-indigo-600"
+            />
+            <label htmlFor="requires_deposit" className="text-sm font-medium text-slate-700">
+              Cobrar seña al reservar
+            </label>
           </div>
+          {!isPro && (
+            <p className="mt-1 text-xs text-slate-500">
+              En el plan Gratis podés cobrar hasta 10 señas por mes. En Premium, ilimitadas.
+            </p>
+          )}
         </div>
       </div>
 
-      <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
-        <p className="text-sm font-semibold text-amber-900">Seña obligatoria</p>
-        <p className="mt-1 text-xs text-amber-800">
-          Todos los servicios requieren una seña de al menos{" "}
-          <span className="font-semibold">$5.000</span>. El cliente deberá adjuntar el
-          comprobante al reservar y vos lo cobrás por tu cuenta de Mercado Pago (descontando la
-          comisión de la plataforma).
-        </p>
-      </div>
+      {requiresDeposit && (
+        <>
+          <div className="rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3">
+            <p className="text-sm font-semibold text-indigo-900">Seña por transferencia</p>
+            <p className="mt-1 text-xs text-indigo-800">
+              El cliente ve tu alias/CBU (los cargás en Ajustes), te transfiere la seña y adjunta
+              el comprobante al reservar. Después la validás desde el inicio del panel. Sin
+              comisiones.
+            </p>
+          </div>
 
-      <Field label="Monto de la seña ($, mínimo $5.000)" name="deposit_amount" error={state?.errors?.deposit_amount}>
-        <input
-          type="number"
-          name="deposit_amount"
-          required
-          min={5000}
-          step="0.01"
-          className={inputClass}
-          placeholder="5000"
-          defaultValue={servicio?.deposit_amount ?? 5000}
-        />
-      </Field>
+          <Field label="Monto de la seña ($, mínimo $5.000)" name="deposit_amount" error={state?.errors?.deposit_amount}>
+            <input
+              type="number"
+              name="deposit_amount"
+              required
+              min={5000}
+              step="0.01"
+              className={inputClass}
+              placeholder="5000"
+              defaultValue={servicio?.deposit_amount ?? 5000}
+            />
+          </Field>
+        </>
+      )}
 
       <div>
         <p className="mb-2 text-sm font-medium text-slate-700">¿Qué profesionales lo brindan?</p>

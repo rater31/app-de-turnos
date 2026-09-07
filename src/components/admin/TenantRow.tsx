@@ -46,7 +46,6 @@ export default function TenantRow({ tenant }: { tenant: Tenant }) {
         </p>
         <p className="mt-1 flex flex-wrap gap-3 text-xs text-slate-400">
           <span>{tenant.counts.clients} clientes</span>
-          <span>{tenant.counts.bookings} turnos</span>
           <span>{tenant.counts.staff} profesionales</span>
         </p>
       </div>

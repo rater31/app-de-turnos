@@ -5,7 +5,7 @@ import { listAdminUsers } from "@/lib/db/api";
 export const metadata = { title: "Usuarios" };
 
 export default async function AdminUsuariosPage() {
-  await requireSuperAdmin();
+  const session = await requireSuperAdmin();
   const users = await listAdminUsers();
 
   return (
@@ -14,14 +14,14 @@ export default async function AdminUsuariosPage() {
         <h1 className="text-xl font-bold text-slate-900">Usuarios</h1>
         <p className="text-sm text-slate-500">
           {users.length} usuario{users.length === 1 ? "" : "s"}. Podés cambiar el rol de cada
-          cuenta entre Owner y Superadmin.
+          cuenta o eliminarla junto con su negocio.
         </p>
       </div>
 
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
         <div className="divide-y divide-slate-100">
           {users.map((u) => (
-            <UserRow key={u.id} user={u} />
+            <UserRow key={u.id} user={u} currentUserId={session.id} />
           ))}
           {users.length === 0 ? (
             <p className="px-5 py-10 text-center text-sm text-slate-500">No hay usuarios.</p>

@@ -69,5 +69,5 @@ export type BookingRow = {
   services: { name: string; duration_minutes: number; price: number } | null;
   staff_members: { name: string; color: string } | null;
   clients: { name: string; phone: string | null; email: string | null } | null;
-  payment: { receipt_url: string | null } | null;
+  payment: { id: string; status: string; receipt_url: string | null } | null;
 };

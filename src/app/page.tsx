@@ -2,6 +2,14 @@ import Link from "next/link";
 
 import { FadeIn } from "@/components/motion";
 
+const SUPPORT_EMAIL = process.env.NEXT_PUBLIC_SUPPORT_EMAIL;
+const SUPPORT_WHATSAPP = process.env.NEXT_PUBLIC_SUPPORT_WHATSAPP;
+const SUPPORT_HREF = SUPPORT_EMAIL
+  ? `mailto:${SUPPORT_EMAIL}`
+  : SUPPORT_WHATSAPP
+    ? `https://wa.me/${SUPPORT_WHATSAPP}`
+    : null;
+
 const BENEFICIOS = [
   {
     titulo: "Reservas online 24/7",
@@ -18,7 +26,7 @@ const BENEFICIOS = [
   {
     titulo: "Menos no-shows",
     texto:
-      "Recordatorios automáticos por WhatsApp y email 24 h antes. El dolor número uno del rubro se reduce drásticamente.",
+      "Recordatorios automáticos por email 24 h antes del turno. El dolor número uno del rubro se reduce drásticamente.",
     icono: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} className="h-6 w-6">
         <path d="M22 2 11 13" />
@@ -29,7 +37,7 @@ const BENEFICIOS = [
   {
     titulo: "Cobro de señas online",
     texto:
-      "Pedí una seña para reservar con Mercado Pago. El dinero va directo a la cuenta del negocio, la plata se queda tu comisión.",
+      "Pedí una seña al reservar: el cliente te transfiere directo y adjunta el comprobante. Sin comisiones.",
     icono: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} className="h-6 w-6">
         <rect x="2" y="6" width="20" height="12" rx="2" />
@@ -41,7 +49,7 @@ const BENEFICIOS = [
   {
     titulo: "Agenda clara y simple",
     texto:
-      "Vista diaria y próximos turnos con confirmación, cancelación y estado de cada reserva. Se aprende en minutos.",
+      "Una lista de turnos con confirmación, cancelación y estado de cada reserva. Se aprende en minutos.",
     icono: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} className="h-6 w-6">
         <rect x="3" y="3" width="18" height="18" rx="3" />
@@ -52,7 +60,7 @@ const BENEFICIOS = [
   {
     titulo: "Cada profesional con su agenda",
     texto:
-      "Multi-negocio y multi-profesional: cada barbero o doctor tiene sus horarios y servicios asignados. Sin dobles reservas.",
+      "Multi-profesional: cada barbero o doctor tiene sus horarios y servicios asignados. Sin dobles reservas.",
     icono: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} className="h-6 w-6">
         <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
@@ -91,7 +99,8 @@ const PLANES = [
       "1 profesional",
       "Reservas online ilimitadas",
       "Agenda del panel",
-      "Hasta 30 días de registro",
+      "Hasta 10 señas/mes",
+      "30 días de prueba Pro completa",
     ],
     cta: "Probar gratis",
   },
@@ -103,8 +112,8 @@ const PLANES = [
     featured: true,
     items: [
       "Profesionales ilimitados",
-      "Recordatorios por WhatsApp y email",
-      "Señas con Mercado Pago",
+      "Recordatorios por email",
+      "Señas online ilimitadas",
       "Página de reservas con tu marca",
       "Soporte prioritario",
     ],
@@ -119,11 +128,11 @@ const PREGUNTAS = [
   },
   {
     p: "¿Cómo funciona el cobro de señas?",
-    r: "El cliente paga cuando reserva y el dinero va directo a tu cuenta de Mercado Pago. La plataforma no se queda nada.",
+    r: "El cliente te transfiere la seña al reservar y adjunta el comprobante. Vos lo confirmás y queda registrado en tu panel.",
   },
   {
     p: "¿Puedo usarlo sin cobrar señas?",
-    r: "Sí. Las señas son opcionales. Si no querés cobrar online, los turnos se reservan igual y el pago se hace en el local.",
+    r: "Sí. Las señas son opcionales. Si no querés pedir señas, los turnos se reservan igual y el pago se hace en el local.",
   },
   {
     p: "¿Funciona para varios profesionales?",
@@ -178,8 +187,8 @@ export default function HomePage() {
                 Tu agenda de turnos, <span className="text-indigo-600">trabajando sola</span>
               </h1>
               <p className="mx-auto mt-6 max-w-2xl text-lg text-slate-600">
-                Ofrecé reservas online 24/7, recordá tus turnos por WhatsApp y cobrá señas con
-                Mercado Pago. Sin papel, sin instalaciones, sin perder clientes.
+                Ofrecé reservas online 24/7, recordá tus turnos por email y cobrá señas. Sin papel,
+                sin instalaciones, sin perder clientes.
               </p>
               <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
                 <Link
@@ -428,6 +437,9 @@ export default function HomePage() {
             <a href="#como-funciona" className="hover:text-slate-900">Cómo funciona</a>
             <a href="#planes" className="hover:text-slate-900">Planes</a>
             <a href="#faq" className="hover:text-slate-900">FAQ</a>
+            {SUPPORT_HREF && (
+              <a href={SUPPORT_HREF} className="hover:text-slate-900">Soporte</a>
+            )}
           </nav>
         </FadeIn>
       </footer>

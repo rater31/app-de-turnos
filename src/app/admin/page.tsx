@@ -46,7 +46,7 @@ export default async function AdminDashboardPage() {
         <p className="text-sm text-slate-500">Métricas globales de la plataforma.</p>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <Card
           label="Negocios"
           value={String(stats.tenants.total)}
@@ -60,35 +60,20 @@ export default async function AdminDashboardPage() {
           href="/admin/usuarios"
         />
         <Card
-          label="Turnos"
-          value={String(stats.bookings.total)}
-          hint={`${stats.bookings.month} este mes`}
-        />
-        <Card
           label="Ingresos"
           value={formatMoney(stats.revenue.total)}
-          hint={`${formatMoney(stats.revenue.month)} este mes`}
+          hint={`${formatMoney(stats.revenue.month)} este mes · solo suscripciones`}
         />
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Link
-          href="/admin/pagos"
-          className="rounded-2xl border border-slate-200 bg-white p-5 transition hover:border-indigo-300 hover:shadow-sm"
-        >
-          <p className="text-sm font-medium text-slate-500">Pagos pendientes de validar</p>
-          <p className="mt-1 text-3xl font-bold text-slate-900">{stats.pendingPayments}</p>
-          <p className="mt-1 text-xs text-slate-400">Señas de turnos a la espera</p>
-        </Link>
-        <Link
-          href="/admin/suscripciones"
-          className="rounded-2xl border border-slate-200 bg-white p-5 transition hover:border-indigo-300 hover:shadow-sm"
-        >
-          <p className="text-sm font-medium text-slate-500">Planes pendientes de reactivar</p>
-          <p className="mt-1 text-3xl font-bold text-slate-900">{stats.planPending}</p>
-          <p className="mt-1 text-xs text-slate-400">Comprobantes de plan sin procesar</p>
-        </Link>
-      </div>
+      <Link
+        href="/admin/suscripciones"
+        className="block rounded-2xl border border-slate-200 bg-white p-5 transition hover:border-indigo-300 hover:shadow-sm"
+      >
+        <p className="text-sm font-medium text-slate-500">Planes pendientes de reactivar</p>
+        <p className="mt-1 text-3xl font-bold text-slate-900">{stats.planPending}</p>
+        <p className="mt-1 text-xs text-slate-400">Comprobantes de plan sin procesar</p>
+      </Link>
     </div>
   );
 }
