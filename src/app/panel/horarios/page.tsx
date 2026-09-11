@@ -4,6 +4,7 @@ import { requireUser } from "@/lib/auth";
 import { listHours, listStaffOptions } from "@/lib/db/api";
 import { buildHoursByDay } from "@/lib/horarios";
 
+export const instant = false;
 export const metadata = { title: "Horarios" };
 
 const DAY_LABELS = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];

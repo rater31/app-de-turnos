@@ -1,5 +1,6 @@
 import { requireUser } from "@/lib/auth";
 
+export const instant = false;
 export const metadata = { title: "Soporte" };
 
 const EMAIL = process.env.NEXT_PUBLIC_SUPPORT_EMAIL ?? "";

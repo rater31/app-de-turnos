@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { getBookedSlotRows } from "@/lib/db/api";
 
+export const instant = false;
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const tenant = searchParams.get("tenant");

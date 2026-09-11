@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { getSessionUserId } from "@/lib/session";
 
+export const instant = false;
+
 function getAppUrl(): string {
   return (process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000").replace(/\/$/, "");
 }

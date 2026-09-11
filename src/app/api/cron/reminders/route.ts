@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 export const maxDuration = 60;
+export const instant = false;
 
 type ReminderRow = {
   id: string;

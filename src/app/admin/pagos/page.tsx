@@ -2,6 +2,7 @@ import PaymentRow from "@/components/admin/PaymentRow";
 import { requireSuperAdmin } from "@/lib/auth";
 import { listAdminPayments } from "@/lib/db/api";
 
+export const instant = false;
 export const metadata = { title: "Pagos" };
 
 export default async function AdminPagosPage() {

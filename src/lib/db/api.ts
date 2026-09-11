@@ -1,4 +1,5 @@
 import "server-only";
+import { cacheLife, cacheTag } from "next/cache";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { slugify } from "@/lib/utils";
@@ -180,26 +181,23 @@ export type UserWithTenant = {
 
 export async function getUserWithTenant(userId: string): Promise<UserWithTenant | null> {
   const client = admin();
-  const { data: profile } = await client.from("profiles").select("*").eq("id", userId).single();
+  // Una sola llamada: perfil + su tenant anidado (evita 2 round-trips y el getUserById redundante).
+  const { data: profile } = await client
+    .from("profiles")
+    .select("*, tenants(*)")
+    .eq("id", userId)
+    .maybeSingle();
 
-  const { data: authUser } = await client.auth.admin.getUserById(userId);
-  if (!authUser?.user) return null;
+  if (!profile) return null;
 
-  let tenant: DBTenant | null = null;
-  if (profile?.tenant_id) {
-    const { data: t } = await client
-      .from("tenants")
-      .select("*")
-      .eq("id", profile.tenant_id)
-      .single();
-    tenant = dbTenant(t);
-  }
+  const tenantRow = (profile as any).tenants as DBTenant | null | undefined;
+  const tenant = tenantRow ? dbTenant(tenantRow) : null;
 
   return {
     user: {
-      id: authUser.user.id,
-      email: authUser.user.email ?? "",
-      created_at: authUser.user.created_at,
+      id: profile.id,
+      email: profile.email ?? "",
+      created_at: profile.created_at,
     },
     profile: {
       id: profile.id,
@@ -309,22 +307,21 @@ export type PublicBookingData = {
 };
 
 export async function getPublicBookingData(slug: string): Promise<PublicBookingData | null> {
+  "use cache";
+  cacheLife("minutes");
+  cacheTag(`public-booking:${slug}`);
+
   const client = admin();
-  const { data: tenant } = await client
-    .from("tenants")
-    .select("*")
+  // Una sola llamada con la suscripción anidada (evita 1 round-trip). As cast: el parser de
+  // tipos de supabase-js no acepta el modificador (order/limit) del embed, pero el runtime sí.
+  const { data: tenant } = (await (client.from("tenants") as any)
+    .select("*, subscriptions(plan,status)(order:created_at.desc,limit:1)")
     .eq("slug", slug)
     .eq("status", "active")
-    .maybeSingle();
+    .maybeSingle()) as { data: any; error: any };
   if (!tenant) return null;
 
-  const { data: sub } = await client
-    .from("subscriptions")
-    .select("status")
-    .eq("tenant_id", tenant.id)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  const sub = tenant.subscriptions?.[0] ?? null;
   const access = tenantAccess(tenant, sub);
   if (access === "blocked") return null;
 

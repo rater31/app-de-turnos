@@ -3,6 +3,7 @@ import { requireUser } from "@/lib/auth";
 import { listClients } from "@/lib/db/api";
 import { whatsappLink } from "@/lib/utils";
 
+export const instant = false;
 export const metadata = { title: "Clientes" };
 
 export default async function ClientesPage() {

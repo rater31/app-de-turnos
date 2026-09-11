@@ -3,6 +3,8 @@ import { getSessionUserId } from "@/lib/session";
 import { getUserWithTenant } from "@/lib/db/api";
 import { saveSellerAccount } from "@/lib/db/api";
 
+export const instant = false;
+
 function getAppUrl(): string {
   return (process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000").replace(/\/$/, "");
 }

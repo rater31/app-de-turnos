@@ -1,6 +1,7 @@
 import Link from "next/link";
 import RegistroForm from "@/components/RegistroForm";
 
+export const instant = false;
 export const metadata = { title: "Crear cuenta" };
 
 type SearchParams = Promise<{ plan?: string }>;

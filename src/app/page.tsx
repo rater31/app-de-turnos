@@ -2,6 +2,8 @@ import Link from "next/link";
 
 import { FadeIn } from "@/components/motion";
 
+const CURRENT_YEAR = new Date().getFullYear();
+
 const SUPPORT_EMAIL = process.env.NEXT_PUBLIC_SUPPORT_EMAIL;
 const SUPPORT_WHATSAPP = process.env.NEXT_PUBLIC_SUPPORT_WHATSAPP;
 const SUPPORT_HREF = SUPPORT_EMAIL
@@ -432,7 +434,7 @@ export default function HomePage() {
             </span>
             TurnoFácil
           </div>
-          <p>© {new Date().getFullYear()} TurnoFácil. Todos los derechos reservados.</p>
+          <p>© {CURRENT_YEAR} TurnoFácil. Todos los derechos reservados.</p>
           <nav className="flex gap-6">
             <a href="#como-funciona" className="hover:text-slate-900">Cómo funciona</a>
             <a href="#planes" className="hover:text-slate-900">Planes</a>

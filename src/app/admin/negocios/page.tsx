@@ -2,6 +2,7 @@ import TenantRow from "@/components/admin/TenantRow";
 import { requireSuperAdmin } from "@/lib/auth";
 import { listTenants } from "@/lib/db/api";
 
+export const instant = false;
 export const metadata = { title: "Negocios" };
 
 export default async function AdminNegociosPage() {

@@ -3,6 +3,7 @@ import StaffForm from "@/components/panel/StaffForm";
 import { requireUser } from "@/lib/auth";
 import { getSubscription, listStaff, tenantAccess } from "@/lib/db/api";
 
+export const instant = false;
 export const metadata = { title: "Profesionales" };
 
 export default async function ProfesionalesPage() {

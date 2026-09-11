@@ -1,6 +1,7 @@
 import Link from "next/link";
 import LoginForm from "@/components/LoginForm";
 
+export const instant = false;
 export const metadata = { title: "Ingresar" };
 
 export default function LoginPage() {

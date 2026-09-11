@@ -2,6 +2,8 @@ import { notFound } from "next/navigation";
 import BookingWizard from "@/components/booking/BookingWizard";
 import { getPublicBookingData } from "@/lib/db/api";
 
+export const instant = false;
+
 export default async function SlugPage(props: PageProps<"/[slug]">) {
   const { slug } = await props.params;
 

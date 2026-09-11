@@ -2,6 +2,7 @@ import Link from "next/link";
 import { requireSuperAdmin } from "@/lib/auth";
 import { getAdminDashboardStats } from "@/lib/db/api";
 
+export const instant = false;
 export const metadata = { title: "Dashboard" };
 
 function formatMoney(n: number) {

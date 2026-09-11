@@ -3,6 +3,7 @@ import ShareButton from "@/components/ShareButton";
 import { requireUser } from "@/lib/auth";
 import { getSubscription, tenantAccess } from "@/lib/db/api";
 
+export const instant = false;
 export const metadata = { title: "Ajustes" };
 
 type SearchParams = Promise<{ mp?: string }>;

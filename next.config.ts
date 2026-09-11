@@ -5,6 +5,7 @@ const nextConfig: NextConfig = {
     root: __dirname,
   },
   allowedDevOrigins: ["192.168.0.102"],
+  cacheComponents: true,
 };
 
 export default nextConfig;

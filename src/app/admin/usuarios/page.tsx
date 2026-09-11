@@ -2,6 +2,7 @@ import UserRow from "@/components/admin/UserRow";
 import { requireSuperAdmin } from "@/lib/auth";
 import { listAdminUsers } from "@/lib/db/api";
 
+export const instant = false;
 export const metadata = { title: "Usuarios" };
 
 export default async function AdminUsuariosPage() {

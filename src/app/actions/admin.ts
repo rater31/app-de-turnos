@@ -1,7 +1,8 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath, updateTag } from "next/cache";
 import { requireSuperAdmin } from "@/lib/auth";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import {
   setTenantStatus,
   setUserRole,
@@ -11,9 +12,30 @@ import {
   deleteAdminUser,
 } from "@/lib/db/api";
 
+// Invalida la página pública de reservas (cache de getPublicBookingData) cuando
+// el superadmin cambia estado, plan o suscripción de un negocio.
+async function invalidarPaginaPublica(tenantId: string) {
+  const { data } = await createSupabaseAdminClient()
+    .from("tenants")
+    .select("slug")
+    .eq("id", tenantId)
+    .maybeSingle();
+  if (data?.slug) updateTag(`public-booking:${data.slug}`);
+}
+
+async function invalidarPaginaPublicaDePago(paymentId: string) {
+  const { data: payment } = await createSupabaseAdminClient()
+    .from("subscription_payments")
+    .select("tenant_id")
+    .eq("id", paymentId)
+    .maybeSingle();
+  if (payment?.tenant_id) await invalidarPaginaPublica(payment.tenant_id);
+}
+
 export async function cambiarEstadoNegocio(tenantId: string, status: "active" | "inactive") {
   await requireSuperAdmin();
   await setTenantStatus(tenantId, status);
+  await invalidarPaginaPublica(tenantId);
   revalidatePath("/admin/negocios");
 }
 
@@ -37,6 +59,7 @@ export async function eliminarUsuario(userId: string) {
 export async function cambiarPlanNegocio(tenantId: string, plan: "pro" | "gratis") {
   await requireSuperAdmin();
   await setTenantPlanAccess(tenantId, plan);
+  await invalidarPaginaPublica(tenantId);
   revalidatePath("/admin/suscripciones");
   revalidatePath("/admin/negocios");
 }
@@ -44,6 +67,7 @@ export async function cambiarPlanNegocio(tenantId: string, plan: "pro" | "gratis
 export async function validarPagoPlan(paymentId: string) {
   await requireSuperAdmin();
   await setSubscriptionPaymentStatus(paymentId, "paid");
+  await invalidarPaginaPublicaDePago(paymentId);
   revalidatePath("/admin/pagos");
   revalidatePath("/admin/suscripciones");
 }
@@ -51,6 +75,7 @@ export async function validarPagoPlan(paymentId: string) {
 export async function rechazarPagoPlan(paymentId: string) {
   await requireSuperAdmin();
   await setSubscriptionPaymentStatus(paymentId, "cancelled");
+  await invalidarPaginaPublicaDePago(paymentId);
   revalidatePath("/admin/pagos");
 }
 
@@ -64,6 +89,7 @@ export async function reactivarSuscripcion(
   ).toISOString();
   await setSubscriptionStatus(tenantId, "active", periodEnd);
   await setTenantStatus(tenantId, "active");
+  await invalidarPaginaPublica(tenantId);
   revalidatePath("/admin/suscripciones");
   revalidatePath("/admin/negocios");
 }

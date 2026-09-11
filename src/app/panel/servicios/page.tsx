@@ -3,6 +3,7 @@ import ServicioRow from "@/components/panel/ServicioRow";
 import { requireUser } from "@/lib/auth";
 import { getSubscription, listServices, listStaff, tenantAccess } from "@/lib/db/api";
 
+export const instant = false;
 export const metadata = { title: "Servicios" };
 
 export default async function ServiciosPage() {

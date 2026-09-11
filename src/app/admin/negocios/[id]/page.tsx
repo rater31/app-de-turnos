@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { requireSuperAdmin } from "@/lib/auth";
 import { getAdminTenantDetail } from "@/lib/db/api";
 
+export const instant = false;
 export const metadata = { title: "Detalle de negocio" };
 
 function formatMoney(n: number) {

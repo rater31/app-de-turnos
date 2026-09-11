@@ -18,7 +18,7 @@ export const metadata: Metadata = {
     template: "%s | TurnoFácil",
   },
   description:
-    "Ofrece reservas online y recordatorios automáticos por WhatsApp para barberías, peluquerías, dentistas y más.",
+    "Ofrece reservas online, recordatorios automáticos por email y cobro de señas para barberías, peluquerías, dentistas y más.",
 };
 
 export const viewport: Viewport = {

@@ -2,6 +2,8 @@ import { notFound } from "next/navigation";
 import AbonarForm from "@/components/abonar/AbonarForm";
 import { getPlanPaymentData } from "@/lib/db/api";
 
+export const instant = false;
+
 export default async function AbonarPage(props: PageProps<"/abonar/[slug]">) {
   const { slug } = await props.params;
 

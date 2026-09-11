@@ -1,6 +1,6 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath, updateTag } from "next/cache";
 import { z } from "zod";
 import { requireUser } from "@/lib/auth";
 import {
@@ -22,6 +22,12 @@ import {
   updateTenant,
   uploadLogo,
 } from "@/lib/db/api";
+
+// Invalida la página pública de reservas (cache de getPublicBookingData) cuando
+// cambian servicios, profesionales, horarios o datos del negocio.
+function invalidarPaginaPublica(slug: string | undefined) {
+  if (slug) updateTag(`public-booking:${slug}`);
+}
 
 // ---------------------------------------------------------------------------
 // Turnos
@@ -100,6 +106,7 @@ export async function crearServicio(
     return { message: result.message };
   }
 
+  invalidarPaginaPublica(user.tenant.slug);
   revalidatePath("/panel/servicios");
   return { ok: true };
 }
@@ -140,6 +147,7 @@ export async function actualizarServicio(
     return { message: result.message };
   }
 
+  invalidarPaginaPublica(user.tenant.slug);
   revalidatePath("/panel/servicios");
   return { ok: true };
 }
@@ -147,12 +155,14 @@ export async function actualizarServicio(
 export async function toggleServicio(id: string, active: boolean) {
   const user = await requireUser();
   await setServiceActive(user.tenant.id, id, active);
+  invalidarPaginaPublica(user.tenant.slug);
   revalidatePath("/panel/servicios");
 }
 
 export async function eliminarServicio(id: string) {
   const user = await requireUser();
   await deleteService(user.tenant.id, id);
+  invalidarPaginaPublica(user.tenant.slug);
   revalidatePath("/panel/servicios");
 }
 
@@ -181,6 +191,7 @@ export async function crearStaff(
   const result = await createStaff(user.tenant.id, parsed.data.name, parsed.data.color);
   if (!result.ok) return { message: result.message };
 
+  invalidarPaginaPublica(user.tenant.slug);
   revalidatePath("/panel/profesionales");
   return { ok: true };
 }
@@ -188,6 +199,7 @@ export async function crearStaff(
 export async function toggleStaff(id: string, active: boolean) {
   const user = await requireUser();
   await setStaffActive(user.tenant.id, id, active);
+  invalidarPaginaPublica(user.tenant.slug);
   revalidatePath("/panel/profesionales");
 }
 
@@ -232,6 +244,7 @@ export async function guardarHorario(
     if (!result.ok) return { message: result.message };
   }
 
+  invalidarPaginaPublica(user.tenant.slug);
   revalidatePath("/panel/horarios");
   return { ok: true };
 }
@@ -239,6 +252,7 @@ export async function guardarHorario(
 export async function eliminarHorario(id: string) {
   const user = await requireUser();
   await deleteHours(user.tenant.id, id);
+  invalidarPaginaPublica(user.tenant.slug);
   revalidatePath("/panel/horarios");
 }
 
@@ -326,6 +340,7 @@ export async function actualizarNegocio(
     titular: parsed.data.titular || null,
   });
 
+  invalidarPaginaPublica(user.tenant.slug);
   revalidatePath("/panel/ajustes");
   revalidatePath("/");
   return { ok: true };
@@ -359,6 +374,7 @@ export async function subirLogo(_prev: LogoState | undefined, formData: FormData
     return { message: "No se pudo subir el logo. Intentá de nuevo." };
   }
 
+  invalidarPaginaPublica(user.tenant.slug);
   return { ok: true, url };
 }
 

@@ -2,6 +2,7 @@ import SubscriptionRow from "@/components/admin/SubscriptionRow";
 import { requireSuperAdmin } from "@/lib/auth";
 import { listAdminSubscriptions } from "@/lib/db/api";
 
+export const instant = false;
 export const metadata = { title: "Suscripciones" };
 
 export default async function AdminSuscripcionesPage() {

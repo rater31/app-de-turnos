@@ -1,5 +1,6 @@
 import Link from "next/link";
 import AutoRefresh from "@/components/panel/AutoRefresh";
+export const instant = false;
 import TurnoAcciones from "@/components/panel/TurnoAcciones";
 import TurnoDetalle from "@/components/panel/TurnoDetalle";
 import { requireUser } from "@/lib/auth";
