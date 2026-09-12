@@ -1,8 +1,6 @@
-import type { NextConfig } from "next";
-
-const nextConfig: NextConfig = {
+const nextConfig = {
   turbopack: {
-    root: __dirname,
+    root: import.meta.dirname,
   },
   allowedDevOrigins: ["192.168.0.102"],
   cacheComponents: true,
