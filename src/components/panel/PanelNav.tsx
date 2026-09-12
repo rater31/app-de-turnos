@@ -1,17 +1,15 @@
-"use client";
-
-import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { logout } from "@/app/actions/logout";
+import { useState } from "react";
+import { NavLink, useNavigate } from "react-router-dom";
+import { supabaseClient } from "@/lib/supabase/client";
 
 const LINKS = [
-  { href: "/panel", label: "Inicio", icon: "home" },
-  { href: "/panel/profesionales", label: "Profesionales", icon: "staff" },
-  { href: "/panel/servicios", label: "Servicios", icon: "service" },
-  { href: "/panel/horarios", label: "Horarios", icon: "hours" },
-  { href: "/panel/clientes", label: "Clientes", icon: "clients" },
-  { href: "/panel/ajustes", label: "Ajustes", icon: "settings" },
-  { href: "/panel/soporte", label: "Soporte", icon: "support" },
+  { href: "/panel", label: "Inicio", icon: "home", end: true },
+  { href: "/panel/profesionales", label: "Profesionales", icon: "staff", end: false },
+  { href: "/panel/servicios", label: "Servicios", icon: "service", end: false },
+  { href: "/panel/horarios", label: "Horarios", icon: "hours", end: false },
+  { href: "/panel/clientes", label: "Clientes", icon: "clients", end: false },
+  { href: "/panel/ajustes", label: "Ajustes", icon: "settings", end: false },
+  { href: "/panel/soporte", label: "Soporte", icon: "support", end: false },
 ];
 
 const ICONS: Record<string, string> = {
@@ -33,7 +31,14 @@ export default function PanelNav({
   tenantSlug: string;
   userName: string;
 }) {
-  const pathname = usePathname();
+  const navigate = useNavigate();
+  const [signingOut, setSigningOut] = useState(false);
+
+  async function handleLogout() {
+    setSigningOut(true);
+    await supabaseClient.auth.signOut();
+    navigate("/");
+  }
 
   return (
     <aside className="flex w-60 shrink-0 flex-col border-r border-slate-200 bg-white">
@@ -48,37 +53,34 @@ export default function PanelNav({
       </div>
 
       <nav className="flex-1 space-y-1 px-3 py-4">
-        {LINKS.map((link) => {
-          const active =
-            link.href === "/panel" ? pathname === "/panel" : pathname.startsWith(link.href);
-          return (
-            <Link
-              key={link.href}
-              href={link.href}
-              className={
-                active
-                  ? "flex items-center gap-3 rounded-lg bg-indigo-50 px-3 py-2 text-sm font-semibold text-indigo-700"
-                  : "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-100 hover:text-slate-900"
-              }
+        {LINKS.map((link) => (
+          <NavLink
+            key={link.href}
+            to={link.href}
+            end={link.end}
+            className={({ isActive }) =>
+              isActive
+                ? "flex items-center gap-3 rounded-lg bg-indigo-50 px-3 py-2 text-sm font-semibold text-indigo-700"
+                : "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-100 hover:text-slate-900"
+            }
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={1.8}
+              className="h-4.5 w-4.5"
             >
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={1.8}
-                className="h-4.5 w-4.5"
-              >
-                <path d={ICONS[link.icon]} strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-              {link.label}
-            </Link>
-          );
-        })}
+              <path d={ICONS[link.icon]} strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            {link.label}
+          </NavLink>
+        ))}
       </nav>
 
       <div className="border-t border-slate-100 px-3 py-4">
         <a
-          href={`/${tenantSlug}`}
+          href={`/b/${tenantSlug}`}
           target="_blank"
           rel="noopener noreferrer"
           className="mb-2 flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-indigo-600 transition hover:bg-indigo-50"
@@ -95,17 +97,17 @@ export default function PanelNav({
             {userName.charAt(0).toUpperCase()}
           </span>
           <span className="flex-1 truncate text-sm text-slate-700">{userName}</span>
-          <form action={logout}>
-            <button
-              type="submit"
-              title="Cerrar sesión"
-              className="text-slate-400 transition hover:text-slate-700"
-            >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} className="h-4.5 w-4.5">
-                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />
-              </svg>
-            </button>
-          </form>
+          <button
+            type="button"
+            disabled={signingOut}
+            onClick={handleLogout}
+            title="Cerrar sesión"
+            className="text-slate-400 transition hover:text-slate-700 disabled:opacity-50"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} className="h-4.5 w-4.5">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />
+            </svg>
+          </button>
         </div>
       </div>
     </aside>

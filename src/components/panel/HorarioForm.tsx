@@ -1,18 +1,77 @@
-"use client";
-
-import { useActionState } from "react";
-import { guardarHorario, type HorarioState } from "@/app/actions/panel";
+import { useState, type FormEvent } from "react";
+import { z } from "zod";
+import { db } from "@/lib/db/api";
+import { useAuth } from "@/lib/auth";
 import { DAY_NAMES } from "@/lib/utils";
 
-export default function HorarioForm({ staff }: { staff: { id: string; name: string }[] }) {
-  const [state, formAction, pending] = useActionState<HorarioState, FormData>(guardarHorario, {});
+const HorarioSchema = z.object({
+  staff_id: z.string().optional().or(z.literal("")),
+  day_of_week: z
+    .array(z.coerce.number().int().min(0).max(6))
+    .min(1, "Elegí al menos un día"),
+  opens: z.string().regex(/^\d{2}:\d{2}$/),
+  closes: z.string().regex(/^\d{2}:\d{2}$/),
+});
+
+type HorarioState = { ok?: boolean; errors?: Record<string, string[]>; message?: string };
+
+export default function HorarioForm({
+  staff,
+  onSuccess,
+}: {
+  staff: { id: string; name: string }[];
+  onSuccess?: () => void;
+}) {
+  const { tenant } = useAuth();
+  const [state, setState] = useState<HorarioState>({});
+  const [submitting, setSubmitting] = useState(false);
+
+  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setState({});
+    const fd = new FormData(e.currentTarget);
+    const parsed = HorarioSchema.safeParse({
+      staff_id: fd.get("staff_id"),
+      day_of_week: fd.getAll("day_of_week").map(Number),
+      opens: fd.get("opens"),
+      closes: fd.get("closes"),
+    });
+    if (!parsed.success) {
+      setState({ errors: parsed.error.flatten().fieldErrors });
+      return;
+    }
+    if (!tenant) return;
+
+    const { staff_id, day_of_week, opens, closes } = parsed.data;
+
+    setSubmitting(true);
+    try {
+      for (const day of day_of_week) {
+        const result = await db.createHours({
+          tenantId: tenant.id,
+          staffId: staff_id || null,
+          dayOfWeek: day,
+          opens,
+          closes,
+        });
+        if (!result.ok) {
+          setState({ message: result.message });
+          return;
+        }
+      }
+      setState({ ok: true });
+      if (onSuccess) onSuccess();
+    } finally {
+      setSubmitting(false);
+    }
+  }
 
   return (
-    <form action={formAction} className="space-y-4">
-      {state?.message && (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      {state.message && (
         <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-700">{state.message}</p>
       )}
-      {state?.ok && (
+      {state.ok && (
         <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
           Horario(s) guardado(s).
         </p>
@@ -37,7 +96,7 @@ export default function HorarioForm({ staff }: { staff: { id: string; name: stri
             </label>
           ))}
         </div>
-        {state?.errors?.day_of_week && (
+        {state.errors?.day_of_week && (
           <p className="mt-1 text-xs text-red-600">{state.errors.day_of_week[0]}</p>
         )}
         <p className="mt-1 text-xs text-slate-400">
@@ -57,7 +116,7 @@ export default function HorarioForm({ staff }: { staff: { id: string; name: stri
             </option>
           ))}
         </select>
-        {state?.errors?.staff_id && (
+        {state.errors?.staff_id && (
           <p className="mt-1 text-xs text-red-600">{state.errors.staff_id[0]}</p>
         )}
       </div>
@@ -68,7 +127,7 @@ export default function HorarioForm({ staff }: { staff: { id: string; name: stri
             Abre
           </label>
           <input type="time" name="opens" id="opens" required defaultValue="09:00" className={inputClass} />
-          {state?.errors?.opens && (
+          {state.errors?.opens && (
             <p className="mt-1 text-xs text-red-600">{state.errors.opens[0]}</p>
           )}
         </div>
@@ -77,7 +136,7 @@ export default function HorarioForm({ staff }: { staff: { id: string; name: stri
             Cierra
           </label>
           <input type="time" name="closes" id="closes" required defaultValue="20:00" className={inputClass} />
-          {state?.errors?.closes && (
+          {state.errors?.closes && (
             <p className="mt-1 text-xs text-red-600">{state.errors.closes[0]}</p>
           )}
         </div>
@@ -85,10 +144,10 @@ export default function HorarioForm({ staff }: { staff: { id: string; name: stri
 
       <button
         type="submit"
-        disabled={pending}
+        disabled={submitting}
         className="w-full rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-indigo-500 disabled:opacity-60 sm:w-auto"
       >
-        {pending ? "Guardando…" : "Agregar horario"}
+        {submitting ? "Guardando…" : "Agregar horario"}
       </button>
     </form>
   );

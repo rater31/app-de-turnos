@@ -1,9 +1,7 @@
-"use client";
-
-import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useState } from "react";
+import { db } from "@/lib/db/api";
+import { useAuth } from "@/lib/auth";
 import type { BookingRow } from "@/lib/types";
-import { validarSeña } from "@/app/actions/panel";
 import { formatCurrency, formatDate, formatTime, whatsappLinkWithText } from "@/lib/utils";
 
 const STATUS_LABEL: Record<string, { label: string; cls: string }> = {
@@ -18,10 +16,10 @@ function isImage(url: string): boolean {
   return /\.(png|jpe?g|webp)$/i.test(url.split("?")[0]);
 }
 
-export default function TurnoDetalle({ booking }: { booking: BookingRow }) {
+export default function TurnoDetalle({ booking, onChanged }: { booking: BookingRow; onChanged?: () => void }) {
   const [open, setOpen] = useState(false);
-  const router = useRouter();
-  const [pending, startTransition] = useTransition();
+  const [pending, setPending] = useState(false);
+  const { tenant } = useAuth();
   const st = STATUS_LABEL[booking.status] ?? STATUS_LABEL.pending;
 
   const wa = whatsappLinkWithText(
@@ -33,11 +31,15 @@ export default function TurnoDetalle({ booking }: { booking: BookingRow }) {
 
   const payment = booking.payment;
 
-  function validar() {
-    startTransition(async () => {
-      await validarSeña(payment?.id ?? "");
-      router.refresh();
-    });
+  async function validar() {
+    if (!tenant || !payment) return;
+    setPending(true);
+    try {
+      await db.updateBookingPaymentStatus(tenant.id, payment.id, "paid");
+      onChanged?.();
+    } finally {
+      setPending(false);
+    }
   }
 
   return (
@@ -114,7 +116,7 @@ export default function TurnoDetalle({ booking }: { booking: BookingRow }) {
               </div>
               <div className="flex justify-between gap-3">
                 <dt className="text-slate-500">Notas</dt>
-                <dd className="text-right text-slate-700 whitespace-pre-line">
+                <dd className="text-right whitespace-pre-line text-slate-700">
                   {booking.notes || "—"}
                 </dd>
               </div>
@@ -144,7 +146,6 @@ export default function TurnoDetalle({ booking }: { booking: BookingRow }) {
                           rel="noopener noreferrer"
                           className="block"
                         >
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img
                             src={payment.receipt_url}
                             alt="Comprobante"
@@ -167,7 +168,7 @@ export default function TurnoDetalle({ booking }: { booking: BookingRow }) {
                     <button
                       type="button"
                       disabled={pending}
-                      onClick={validar}
+                      onClick={() => void validar()}
                       className="mt-3 w-full rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-600 disabled:opacity-60"
                     >
                       {pending ? "…" : "Validar seña"}

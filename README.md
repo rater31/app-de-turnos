@@ -1,36 +1,37 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# turnosFácil — app de turnos
 
-## Getting Started
+SPA de gestión de turnos **Vite + React + TypeScript + Tailwind CSS 4**, desplegada en **GitHub Pages** (base `/app-de-turnos/`). Backend: Supabase.
 
-First, run the development server:
+> Migrado desde Next.js App Router a SPA de cliente. No quedan rutas `/api` ni server code en el repo; las funciones serverless viven como Edge Functions de Supabase (`supabase/functions/`).
+
+## Desarrollo
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm ci
+npm run dev          # Vite dev server en http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Variables de entorno: copiar `.env.example` → `.env.local` y completar (solo hay prefijos `VITE_*`, nunca secrets).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Build
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm run build
+```
 
-## Learn More
+Genera `out/` (ver `vite.config.ts`): `tsc --noEmit` + `vite build` + `scripts/postbuild.mjs` (copia `out/index.html` → `out/404.html` para que GitHub Pages sirva los deep links).
 
-To learn more about Next.js, take a look at the following resources:
+## Deploy (GitHub Pages)
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- Workflow: `.github/workflows/deploy.yml` (push a `main` o `workflow_dispatch`).
+- Flujo: `npm ci` → `npm run build` → `actions/configure-pages` → artifact `out/` → `actions/deploy-pages` (environment `github-pages`).
+- Site: `https://<user>.github.io/app-de-turnos/`. Si se usa dominio custom, cambiar `base` en `vite.config.ts` (o al artifact del workflow si cambia el path).
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Recordatorios
 
-## Deploy on Vercel
+Los recordatorios se envían cada 15 min por **pg_cron en Supabase** invocando a la Edge Function `reminders` (`supabase/functions/reminders/`), no por GitHub Actions. Setup: ejecutar `supabase/cron_reminders.sql` y setear secrets (`supabase secrets set CRON_SECRET=... RESEND_API_KEY=...`).
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Existe `supabase-reminders.yml` como disparo **manual** opcional de ese envío. Para usarlo, configurar en **GitHub → Settings → Secrets and variables → Actions**:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- `SUPABASE_PROJECT_REF` (var): subdominio del proyecto, la parte antes de `.supabase.co`.
+- `SUPABASE_CRON_SECRET` (secret): el mismo valor que `CRON_SECRET` de la Edge Function. Nunca lo pongas en `.env.*`.

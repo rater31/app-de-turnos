@@ -1,8 +1,7 @@
-"use client";
-
-import { useEffect, useState } from "react";
-import { useActionState } from "react";
-import { actualizarServicio, crearServicio, type ServicioState } from "@/app/actions/panel";
+import { useState, type FormEvent, type ReactNode } from "react";
+import { z } from "zod";
+import { db } from "@/lib/db/api";
+import { useAuth } from "@/lib/auth";
 import type { StaffMember } from "@/lib/types";
 
 export type EditableService = {
@@ -16,6 +15,22 @@ export type EditableService = {
   service_staff?: { staff_members: { id: string; name: string }[] }[];
 };
 
+const MIN_DEPOSIT = 5000;
+
+const ServicioSchema = z.object({
+  name: z.string().min(2, "El nombre es obligatorio"),
+  description: z.string().optional(),
+  duration_minutes: z.coerce.number().int().min(5).max(600),
+  price: z.coerce.number().min(0),
+  deposit_amount: z.coerce
+    .number()
+    .int()
+    .min(MIN_DEPOSIT, `La seña mínima es de $${MIN_DEPOSIT}`)
+    .optional(),
+});
+
+type ServicioState = { ok?: boolean; errors?: Record<string, string[]>; message?: string };
+
 export default function ServicioForm({
   staff,
   servicio,
@@ -27,32 +42,76 @@ export default function ServicioForm({
   isPro: boolean;
   onSuccess?: () => void;
 }) {
-  const action = servicio ? actualizarServicio : crearServicio;
-  const [state, formAction, pending] = useActionState<ServicioState, FormData>(action, {});
+  const { tenant } = useAuth();
+  const [state, setState] = useState<ServicioState>({});
+  const [submitting, setSubmitting] = useState(false);
 
   const assignedIds = new Set(
     (servicio?.service_staff ?? []).flatMap((s) => s.staff_members.map((m) => m.id)),
   );
   const [requiresDeposit, setRequiresDeposit] = useState(servicio?.requires_deposit ?? false);
 
-  useEffect(() => {
-    if (state?.ok && onSuccess) onSuccess();
-  }, [state?.ok, onSuccess]);
+  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setState({});
+    const form = e.currentTarget;
+    const fd = new FormData(form);
+    const parsed = ServicioSchema.safeParse({
+      name: fd.get("name"),
+      description: fd.get("description") || undefined,
+      duration_minutes: fd.get("duration_minutes"),
+      price: fd.get("price"),
+      deposit_amount: fd.get("deposit_amount") || undefined,
+    });
+    if (!parsed.success) {
+      setState({ errors: parsed.error.flatten().fieldErrors });
+      return;
+    }
+    if (!tenant) return;
+
+    const staffIds = fd.getAll("staffIds").map(String);
+    const quiereSeña = fd.get("requires_deposit") === "true";
+    const input = {
+      tenantId: tenant.id,
+      name: parsed.data.name,
+      description: parsed.data.description,
+      durationMinutes: parsed.data.duration_minutes,
+      price: parsed.data.price,
+      requiresDeposit: quiereSeña,
+      depositAmount: quiereSeña ? (parsed.data.deposit_amount ?? MIN_DEPOSIT) : null,
+      staffIds,
+    };
+
+    setSubmitting(true);
+    try {
+      const result = servicio
+        ? await db.updateService(tenant.id, servicio.id, input)
+        : await db.createService(input);
+      if (!result.ok) {
+        setState({ message: result.message });
+        return;
+      }
+      setState({ ok: true });
+      if (onSuccess) onSuccess();
+    } finally {
+      setSubmitting(false);
+    }
+  }
 
   return (
-    <form action={formAction} className="space-y-4">
+    <form onSubmit={handleSubmit} className="space-y-4">
       {servicio && <input type="hidden" name="id" value={servicio.id} />}
-      {state?.message && (
+      {state.message && (
         <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-700">{state.message}</p>
       )}
-      {state?.ok && (
+      {state.ok && (
         <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
           Servicio {servicio ? "actualizado" : "guardado"}.
         </p>
       )}
 
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="Nombre" name="name" error={state?.errors?.name}>
+        <Field label="Nombre" name="name" error={state.errors?.name}>
           <input
             type="text"
             name="name"
@@ -62,7 +121,7 @@ export default function ServicioForm({
             defaultValue={servicio?.name ?? ""}
           />
         </Field>
-        <Field label="Duración (minutos)" name="duration_minutes" error={state?.errors?.duration_minutes}>
+        <Field label="Duración (minutos)" name="duration_minutes" error={state.errors?.duration_minutes}>
           <input
             type="number"
             name="duration_minutes"
@@ -74,7 +133,7 @@ export default function ServicioForm({
         </Field>
       </div>
 
-      <Field label="Descripción (opcional)" name="description" error={state?.errors?.description}>
+      <Field label="Descripción (opcional)" name="description" error={state.errors?.description}>
         <input
           type="text"
           name="description"
@@ -85,7 +144,7 @@ export default function ServicioForm({
       </Field>
 
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="Precio ($)" name="price" error={state?.errors?.price}>
+        <Field label="Precio ($)" name="price" error={state.errors?.price}>
           <input
             type="number"
             name="price"
@@ -130,7 +189,7 @@ export default function ServicioForm({
             </p>
           </div>
 
-          <Field label="Monto de la seña ($, mínimo $5.000)" name="deposit_amount" error={state?.errors?.deposit_amount}>
+          <Field label="Monto de la seña ($, mínimo $5.000)" name="deposit_amount" error={state.errors?.deposit_amount}>
             <input
               type="number"
               name="deposit_amount"
@@ -173,10 +232,10 @@ export default function ServicioForm({
 
       <button
         type="submit"
-        disabled={pending}
+        disabled={submitting}
         className="w-full rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-indigo-500 disabled:opacity-60 sm:w-auto"
       >
-        {pending ? "Guardando…" : servicio ? "Actualizar servicio" : "Guardar servicio"}
+        {submitting ? "Guardando…" : servicio ? "Actualizar servicio" : "Guardar servicio"}
       </button>
     </form>
   );
@@ -194,7 +253,7 @@ function Field({
   label: string;
   name: string;
   error?: string[];
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   return (
     <div>

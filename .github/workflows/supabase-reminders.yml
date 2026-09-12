@@ -1,0 +1,35 @@
+# Disparo MANUAL del envío de recordatorios.
+# Los recordatorios automáticos corren por pg_cron en Supabase cada 15 min
+# (ver supabase/cron_reminders.sql). NO usa schedule de GitHub.
+#
+# Configurar en GitHub > Settings > Secrets and variables > Actions:
+#   - var SUPABASE_PROJECT_REF   -> subdominio del proyecto (la parte antes de
+#                                   ".supabase.co"), ej: "abcdefghijkl"
+#   - secret SUPABASE_CRON_SECRET -> mismo valor que CRON_SECRET de la Edge
+#                                   Function "reminders" (supabase secrets set
+#                                   CRON_SECRET=...). Solo sirve para invocarla.
+#
+# Ejecutar desde Actions > "Reminders manual" > Run workflow.
+name: Reminders manual
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  reminders:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Invocar Edge Function reminders
+        env:
+          PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
+          CRON_SECRET: ${{ secrets.SUPABASE_CRON_SECRET }}
+        run: |
+          code=$(curl -sS -o /tmp/reminders.out -w "%{http_code}" \
+            -H "Authorization: Bearer ${CRON_SECRET:?Falta el secret SUPABASE_CRON_SECRET}" \
+            "https://${PROJECT_REF:?Falta la var SUPABASE_PROJECT_REF}.functions.supabase.co/reminders")
+          echo "HTTP $code"
+          cat /tmp/reminders.out
+          if [ "$code" != "200" ]; then exit 1; fi

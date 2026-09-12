@@ -1,8 +1,6 @@
-"use client";
-
-import { useTransition } from "react";
-import { useRouter } from "next/navigation";
-import { eliminarHorario } from "@/app/actions/panel";
+import { useState } from "react";
+import { db } from "@/lib/db/api";
+import { useAuth } from "@/lib/auth";
 import { DAY_NAMES, formatTime } from "@/lib/utils";
 
 export default function HorarioRow({
@@ -11,15 +9,28 @@ export default function HorarioRow({
   opens,
   closes,
   staffName,
+  onChanged,
 }: {
   id: string;
   dayOfWeek: number;
   opens: string;
   closes: string;
   staffName: string | null;
+  onChanged?: () => void;
 }) {
-  const router = useRouter();
-  const [pending, startTransition] = useTransition();
+  const { tenant } = useAuth();
+  const [pending, setPending] = useState(false);
+
+  async function remove() {
+    if (!tenant) return;
+    setPending(true);
+    try {
+      await db.deleteHours(tenant.id, id);
+      onChanged?.();
+    } finally {
+      setPending(false);
+    }
+  }
 
   return (
     <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 py-3">
@@ -32,12 +43,7 @@ export default function HorarioRow({
       <button
         type="button"
         disabled={pending}
-        onClick={() => {
-          startTransition(async () => {
-            await eliminarHorario(id);
-            router.refresh();
-          });
-        }}
+        onClick={() => void remove()}
         className="rounded-lg px-3 py-1.5 text-xs font-medium text-red-500 transition hover:bg-red-50 disabled:opacity-50"
       >
         Eliminar

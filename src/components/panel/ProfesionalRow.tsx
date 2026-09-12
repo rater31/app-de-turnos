@@ -1,22 +1,33 @@
-"use client";
-
-import { useTransition } from "react";
-import { useRouter } from "next/navigation";
-import { toggleStaff } from "@/app/actions/panel";
+import { useState } from "react";
+import { db } from "@/lib/db/api";
+import { useAuth } from "@/lib/auth";
 
 export default function ProfesionalRow({
   id,
   name,
   color,
   active,
+  onChanged,
 }: {
   id: string;
   name: string;
   color: string;
   active: boolean;
+  onChanged?: () => void;
 }) {
-  const router = useRouter();
-  const [pending, startTransition] = useTransition();
+  const { tenant } = useAuth();
+  const [pending, setPending] = useState(false);
+
+  async function toggle() {
+    if (!tenant) return;
+    setPending(true);
+    try {
+      await db.setStaffActive(tenant.id, id, !active);
+      onChanged?.();
+    } finally {
+      setPending(false);
+    }
+  }
 
   return (
     <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white p-4">
@@ -37,12 +48,7 @@ export default function ProfesionalRow({
       <button
         type="button"
         disabled={pending}
-        onClick={() => {
-          startTransition(async () => {
-            await toggleStaff(id, !active);
-            router.refresh();
-          });
-        }}
+        onClick={() => void toggle()}
         className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-slate-400 disabled:opacity-50"
       >
         {active ? "Desactivar" : "Activar"}

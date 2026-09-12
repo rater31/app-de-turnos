@@ -1,14 +1,73 @@
-"use client";
+import { useState, type FormEvent } from "react";
+import { useNavigate } from "react-router-dom";
+import { z } from "zod";
+import { db } from "@/lib/db/api";
+import { supabaseClient } from "@/lib/supabase/client";
 
-import { useActionState } from "react";
-import { login, type LoginState } from "@/app/actions/login";
+const LoginSchema = z.object({
+  email: z.string().email("Ingresá un email válido"),
+  password: z.string().min(1, "Ingresá tu contraseña"),
+});
+
+type LoginState = {
+  message?: string;
+};
 
 export default function LoginForm() {
-  const [state, formAction, pending] = useActionState<LoginState, FormData>(login, {});
+  const [state, setState] = useState<LoginState>({});
+  const [pending, setPending] = useState(false);
+  const navigate = useNavigate();
+
+  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setState({});
+    const form = e.currentTarget;
+    const parsed = LoginSchema.safeParse({
+      email: new FormData(form).get("email"),
+      password: new FormData(form).get("password"),
+    });
+    if (!parsed.success) {
+      setState({ message: "Email o contraseña incorrectos." });
+      return;
+    }
+
+    setPending(true);
+    try {
+      const { data, error } = await supabaseClient.auth.signInWithPassword({
+        email: parsed.data.email,
+        password: parsed.data.password,
+      });
+      if (error || !data.user) {
+        setState({ message: "Email o contraseña incorrectos." });
+        return;
+      }
+
+      const account = await db.getUserWithTenantId(data.user.id);
+      if (
+        account &&
+        account.profile &&
+        account.profile.role !== "superadmin" &&
+        account.tenant?.status !== "active"
+      ) {
+        if (account.tenant?.slug) {
+          navigate(`/abonar/${account.tenant.slug}`);
+          return;
+        }
+        setState({ message: "Tu negocio está deshabilitado. Contactá al administrador." });
+        return;
+      }
+
+      navigate(account?.profile?.role === "superadmin" ? "/admin" : "/panel");
+    } catch {
+      setState({ message: "No se pudo iniciar sesión. Intentá de nuevo." });
+    } finally {
+      setPending(false);
+    }
+  }
 
   return (
-    <form action={formAction} className="space-y-4">
-      {state?.message && (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      {state.message && (
         <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-700">{state.message}</p>
       )}
 

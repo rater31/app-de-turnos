@@ -1,7 +1,4 @@
-import "server-only";
-import { cacheLife, cacheTag } from "next/cache";
-import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { supabaseClient } from "@/lib/supabase/client";
 import { slugify } from "@/lib/utils";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type {
@@ -14,30 +11,17 @@ import type {
 } from "@/lib/types";
 import type { DBPayment, DBSellerAccount, DBTenant } from "./types";
 
-// Acceso a datos sobre Supabase. Las consultas son async.
-// Se usa el client con service_role (admin) para operaciones que no dependen
-// de un usuario logueado (pública, superadmin, onboarding) y el client del
-// usuario autenticado (respeta RLS) para todo el resto del panel.
-
-const ACTIVE_BOOKING_STATUSES = ["pending", "confirmed", "completed"] as const;
-
-function svc(): SupabaseClient {
-  return createSupabaseServerClient();
-}
-
-function admin(): SupabaseClient {
-  return createSupabaseAdminClient();
-}
+// Acceso a datos sobre Supabase para la SPA (React + Vite, 100% client-side).
+// Se usa el único cliente del browser (anon key). El RLS protege cada tabla:
+//   - páginas públicas (reservas, abonar): lectura anon con policies *_select_public
+//   - panel del negocio: usuario autenticado del tenant (current_tenant_id)
+//   - panel maestro: superadmin (is_superadmin)
+// Las mutaciones "públicas" (reserva, onboarding, borrado de datos) se hacen
+// a través de RPCs SECURITY DEFINER (create_public_booking, onboard_tenant,
+// delete_user_data) que validan el acceso server-side.
 
 function pad(n: number): string {
   return n.toString().padStart(2, "0");
-}
-
-// Convierte Date a "YYYY-MM-DD HH:MM:SS" (hora local del negocio).
-function toDbTimestamp(date: Date): string {
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(
-    date.getHours(),
-  )}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
 }
 
 function dbTenant(t: any): DBTenant | null {
@@ -66,7 +50,7 @@ function dbTenant(t: any): DBTenant | null {
 // ---------------------------------------------------------------------------
 // Acceso por plan: "pro" (pago o con prueba vigente), "gratis" (plan gratuito,
 // 1 profesional, sin funciones Pro) o "blocked" (negocio deshabilitado o plan
-// Pro sin pago con la prueba vencida).
+// Pro sin pago con la prueba vencida). Misma lógica que RPC create_public_booking.
 // ---------------------------------------------------------------------------
 
 export type TenantAccess = "pro" | "gratis" | "blocked";
@@ -89,14 +73,15 @@ export function tenantAccess(
 
 const RECEIPT_BUCKET = "comprobantes";
 
-// Límite de señas por mes para el plan Gratis (opción B: usar señas como embudo a Pro).
+// Límite de señas por mes para el plan Gratis. El RPC create_public_booking lo
+// replica server-side (misma constante: 10).
 export const FREE_DEPOSIT_MONTHLY_LIMIT = 10;
 
-// Cantidad de señas (pagadas o pendientes) registradas por un negocio en el mes actual.
+// Cuenta las señas (pagadas o pendientes) del negocio en el mes actual.
+// Solo dueño/superadmin por RLS (payments_all del tenant / all_superadmin).
 export async function countTenantMonthlyDeposits(tenantId: string): Promise<number> {
-  const client = admin();
   const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString();
-  const { count } = await client
+  const { count } = await supabaseClient
     .from("payments")
     .select("id", { count: "exact", head: true })
     .eq("tenant_id", tenantId)
@@ -105,60 +90,56 @@ export async function countTenantMonthlyDeposits(tenantId: string): Promise<numb
   return count ?? 0;
 }
 
-// Sube el comprobante de la seña a Supabase Storage (bucket privado).
-async function uploadReceipt(
-  client: SupabaseClient,
-  file: File,
-  tenantId: string,
-  bookingId: string,
-): Promise<string | null> {
+// Sube el comprobante de la seña de una reserva pública al bucket privado.
+// La SPA lo hace con anon key ANTES de llamar al RPC: la policy
+// comprobantes_insert_anon_react permite subir a "comprobantes/<tenant_slug>/".
+// anon no puede firmar URLs de un bucket privado -> devolvemos el path.
+async function uploadPublicReceipt(file: File, tenantSlug: string): Promise<string | null> {
   const ext = (file.name.split(".").pop() ?? "jpg").replace(/[^a-zA-Z0-9]/g, "").slice(0, 6);
   const safeName = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
-  const path = `${tenantId}/${bookingId}/${safeName}`;
-  const bytes = Buffer.from(await file.arrayBuffer());
-
-  const { error: bucketError } = await client.storage.createBucket(RECEIPT_BUCKET, {
-    public: false,
-  });
-  if (bucketError && !/already exists/i.test(bucketError.message)) {
-    return null;
-  }
-
-  const { error } = await client.storage.from(RECEIPT_BUCKET).upload(path, bytes, {
+  const path = `${tenantSlug}/${safeName}`;
+  const { error } = await supabaseClient.storage.from(RECEIPT_BUCKET).upload(path, file, {
     contentType: file.type,
     upsert: false,
   });
   if (error) return null;
+  return `${RECEIPT_BUCKET}/${path}`;
+}
 
-  const { data: urlData } = await client.storage.from(RECEIPT_BUCKET).createSignedUrl(path, 60 * 60 * 24 * 365);
+// Sube el comprobante del pago de plan (dueño autenticado). El dueño puede
+// firmar URLs de los comprobantes de su tenant (comprobantes_select_tenant_react).
+async function uploadPlanReceipt(
+  client: SupabaseClient,
+  file: File,
+  tenantId: string,
+): Promise<string | null> {
+  const ext = (file.name.split(".").pop() ?? "jpg").replace(/[^a-zA-Z0-9]/g, "").slice(0, 6);
+  const safeName = `plan-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+  const path = `${tenantId}/plan/${safeName}`;
+  const { error } = await client.storage.from(RECEIPT_BUCKET).upload(path, file, {
+    contentType: file.type,
+    upsert: false,
+  });
+  if (error) return null;
+  const { data: urlData } = await client.storage
+    .from(RECEIPT_BUCKET)
+    .createSignedUrl(path, 60 * 60 * 24 * 365);
   return urlData?.signedUrl ?? null;
 }
 
 const LOGO_BUCKET = "logos";
 
-// Sube el logo del negocio a Supabase Storage (bucket público). Reemplaza el
-// archivo anterior del tenant (misma ruta) para no acumular versiones.
+// Sube el logo del negocio a Supabase Storage (bucket público, path con el
+// tenant_id del dueño). Reemplaza el archivo anterior del tenant.
 export async function uploadLogo(tenantId: string, file: File): Promise<string | null> {
-  const client = admin();
   const ext = (file.name.split(".").pop() ?? "png").replace(/[^a-zA-Z0-9]/g, "").slice(0, 6);
   const path = `${tenantId}/logo.${ext}`;
-  const bytes = Buffer.from(await file.arrayBuffer());
-
-  const { error: bucketError } = await client.storage.createBucket(LOGO_BUCKET, {
-    public: true,
-  });
-  if (bucketError && !/already exists/i.test(bucketError.message)) {
-    return null;
-  }
-  await client.storage.updateBucket(LOGO_BUCKET, { public: true });
-
-  const { error } = await client.storage.from(LOGO_BUCKET).upload(path, bytes, {
+  const { error } = await supabaseClient.storage.from(LOGO_BUCKET).upload(path, file, {
     contentType: file.type,
     upsert: true,
   });
   if (error) return null;
-
-  const { data } = client.storage.from(LOGO_BUCKET).getPublicUrl(path);
+  const { data } = supabaseClient.storage.from(LOGO_BUCKET).getPublicUrl(path);
   return data.publicUrl ?? null;
 }
 
@@ -179,10 +160,10 @@ export type UserWithTenant = {
   tenant: DBTenant | null;
 };
 
+// Perfil + tenant del usuario en una sola llamada (perfil embebido con RLS:
+// solo puede leer su propio perfil; el tenant se lee con tenants_select_public).
 export async function getUserWithTenant(userId: string): Promise<UserWithTenant | null> {
-  const client = admin();
-  // Una sola llamada: perfil + su tenant anidado (evita 2 round-trips y el getUserById redundante).
-  const { data: profile } = await client
+  const { data: profile } = await supabaseClient
     .from("profiles")
     .select("*, tenants(*)")
     .eq("id", userId)
@@ -211,29 +192,37 @@ export async function getUserWithTenant(userId: string): Promise<UserWithTenant 
   };
 }
 
+// Alias usado por la SPA (auth.tsx y LoginForm).
+export const getUserWithTenantId = getUserWithTenant;
+
 // ---------------------------------------------------------------------------
-// Onboarding (registro del negocio). Requiere que el usuario de Supabase Auth
-// ya exista (userId). Se usa admin porque el usuario todavía no tiene tenant.
+// Onboarding (registro del negocio) - RPC SECURITY DEFINER con anon key
 // ---------------------------------------------------------------------------
 
+// El RPC onboard_tenant crea el auth user, el tenant, el perfil owner (con su
+// staff_member), la suscripción y el horario por defecto.
+//
+// NOTA DE MIGRACIÓN: el código original recibía userId (usuario ya creado con
+// auth.signUp()) porque corría en servidor con service_role. Con anon key no
+// hay INSERT con RLS sobre tenants, así que el flujo SPA pasa por el RPC, que
+// crea el usuario solo. RegistroForm debe llamar a onboardTenant con password y
+// NO invocar auth.signUp() antes. `userId` se conserva por compatibilidad.
 export async function onboardTenant(input: {
   userId: string;
+  password?: string;
   businessName: string;
   fullName: string;
   email: string;
   phone?: string;
   plan?: "gratis" | "pro";
 }): Promise<{ ok: true } | { ok: false; message: string }> {
-  const client = admin();
-
   const selectedPlan = input.plan ?? "pro";
 
   const baseSlug = slugify(input.businessName) || "negocio";
   let slug = baseSlug;
   let suffix = 2;
-  // eslint-disable-next-line no-constant-condition
   while (true) {
-    const { data: existing } = await client
+    const { data: existing } = await supabaseClient
       .from("tenants")
       .select("id")
       .eq("slug", slug)
@@ -243,58 +232,22 @@ export async function onboardTenant(input: {
     suffix += 1;
   }
 
-  const now = new Date();
-  const { data: tenant, error: tenantError } = await client
-    .from("tenants")
-    .insert({
-      name: input.businessName,
-      slug,
-      plan: selectedPlan,
-      status: "active",
-      primary_color: "#0f172a",
-      description: null,
-      phone: input.phone || null,
-      email: input.email,
-      trial_ends_at: new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-    })
-    .select("id")
-    .single();
-
-  if (tenantError || !tenant) {
-    return { ok: false, message: `Error tenant: ${tenantError?.message}` };
-  }
-
-  const { error: profileError } = await client.from("profiles").insert({
-    id: input.userId,
-    tenant_id: tenant.id,
-    full_name: input.fullName,
-    email: input.email,
-    phone: input.phone || null,
-    role: "owner",
+  const { data, error } = await supabaseClient.rpc("onboard_tenant", {
+    p_email: input.email,
+    p_password: input.password ?? "",
+    p_tenant_name: input.businessName,
+    p_tenant_slug: slug,
+    p_full_name: input.fullName,
+    p_plan: selectedPlan,
   });
 
-  if (profileError) {
-    return { ok: false, message: `Error perfil: ${profileError.message}` };
+  if (error || !data) {
+    return { ok: false, message: error?.message ?? "No se pudo crear la cuenta. Intentá de nuevo." };
   }
-
-  // El trigger profile_onboarding crea automáticamente el staff_member del owner.
-  const { error: subError } = await client.from("subscriptions").insert({
-    tenant_id: tenant.id,
-    plan: "pro",
-    status: "trial",
-    current_period_start: now.toISOString(),
-    current_period_end: new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-  });
-
-  if (subError) {
-    return { ok: false, message: `Error sub: ${subError.message}` };
-  }
-
   return { ok: true };
 }
-
 // ---------------------------------------------------------------------------
-// Página pública (sin login -> admin client)
+// Página pública (sin login -> RPC booked_slots / create_public_booking)
 // ---------------------------------------------------------------------------
 
 export type PublicBookingData = {
@@ -307,35 +260,57 @@ export type PublicBookingData = {
 };
 
 export async function getPublicBookingData(slug: string): Promise<PublicBookingData | null> {
-  "use cache";
-  cacheLife("minutes");
-  cacheTag(`public-booking:${slug}`);
-
-  const client = admin();
-  // Una sola llamada con la suscripción anidada (evita 1 round-trip). As cast: el parser de
-  // tipos de supabase-js no acepta el modificador (order/limit) del embed, pero el runtime sí.
-  const { data: tenant } = (await (client.from("tenants") as any)
-    .select("*, subscriptions(plan,status)(order:created_at.desc,limit:1)")
+  const { data: tenant } = await supabaseClient
+    .from("tenants")
+    .select("*")
     .eq("slug", slug)
     .eq("status", "active")
-    .maybeSingle()) as { data: any; error: any };
+    .maybeSingle();
   if (!tenant) return null;
 
-  const sub = tenant.subscriptions?.[0] ?? null;
-  const access = tenantAccess(tenant, sub);
+  // La suscripción no es legible con anon key (no hay policy select_public);
+  // el RPC create_public_booking valida el acceso de todas formas server-side.
+  let sub: { status: string } | null | undefined;
+  try {
+    const { data } = await supabaseClient
+      .from("subscriptions")
+      .select("status")
+      .eq("tenant_id", tenant.id)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    sub = data ?? null;
+  } catch {
+    sub = null;
+  }
+
+  let access: TenantAccess;
+  if (sub) {
+    access = tenantAccess(tenant, sub);
+  } else {
+    const trialActive =
+      tenant.trial_ends_at != null &&
+      tenant.trial_ends_at !== "" &&
+      new Date(tenant.trial_ends_at).getTime() > Date.now();
+    access = trialActive || tenant.plan === "pro" ? "pro" : "gratis";
+  }
   if (access === "blocked") return null;
 
   const pro = access === "pro";
 
   const [{ data: services }, { data: staff }, { data: hours }, { data: allLinks }] =
     await Promise.all([
-      client.from("services").select("*").eq("tenant_id", tenant.id).eq("active", true),
-      client.from("staff_members").select("*").eq("tenant_id", tenant.id).eq("active", true),
-      client.from("business_hours").select("*").eq("tenant_id", tenant.id).eq("active", true),
-      client.from("service_staff").select("*"),
+      supabaseClient.from("services").select("*").eq("tenant_id", tenant.id).eq("active", true),
+      supabaseClient.from("staff_members").select("*").eq("tenant_id", tenant.id).eq("active", true),
+      supabaseClient
+        .from("business_hours")
+        .select("*")
+        .eq("tenant_id", tenant.id)
+        .eq("active", true),
+      supabaseClient.from("service_staff").select("*"),
     ]);
 
-  // service_staff no tiene tenant_id; filtramos por los ids de los servicios del tenant
+  // service_staff no tiene tenant_id; filtramos por los ids de los servicios del tenant.
   const serviceIds = new Set((services ?? []).map((s: any) => s.id));
   const serviceStaff = (allLinks ?? []).filter((l: any) => serviceIds.has(l.service_id));
 
@@ -386,20 +361,18 @@ export async function getPublicBookingData(slug: string): Promise<PublicBookingD
   };
 }
 
+// Rangos ocupados de una fecha para el wizard (RPC con grant a anon).
 export async function getBookedSlotRows(tenantId: string, staffId: string, date: string) {
-  const client = admin();
-  const start = `${date} 00:00:00`;
-  const end = `${date} 23:59:59`;
-  const { data } = await client
-    .from("bookings")
-    .select("starts_at, ends_at")
-    .eq("tenant_id", tenantId)
-    .eq("staff_id", staffId)
-    .in("status", ACTIVE_BOOKING_STATUSES as unknown as string[])
-    .gte("ends_at", start)
-    .lt("starts_at", end);
+  const { data } = await supabaseClient.rpc("booked_slots", {
+    p_tenant: tenantId,
+    p_staff: staffId,
+    p_date: date,
+  });
   return (data ?? []).map((b: any) => ({ starts_at: b.starts_at, ends_at: b.ends_at }));
 }
+
+// Alias usado por el wizard de la SPA.
+export const getBookedSlots = getBookedSlotRows;
 
 export type CreateBookingResult =
   | {
@@ -413,8 +386,7 @@ export async function serviceRequiresDeposit(
   slug: string,
   serviceId: string,
 ): Promise<boolean> {
-  const client = admin();
-  const { data: tenant } = await client
+  const { data: tenant } = await supabaseClient
     .from("tenants")
     .select("id, plan, status, trial_ends_at")
     .eq("slug", slug)
@@ -422,7 +394,7 @@ export async function serviceRequiresDeposit(
     .maybeSingle();
   if (!tenant) return false;
 
-  const { data: sub } = await client
+  const { data: sub } = await supabaseClient
     .from("subscriptions")
     .select("status")
     .eq("tenant_id", tenant.id)
@@ -432,7 +404,7 @@ export async function serviceRequiresDeposit(
   // Un negocio bloqueado no puede recibir señas.
   if (tenantAccess(tenant, sub) === "blocked") return false;
 
-  const { data: service } = await client
+  const { data: service } = await supabaseClient
     .from("services")
     .select("requires_deposit, deposit_amount")
     .eq("id", serviceId)
@@ -447,6 +419,15 @@ export async function serviceRequiresDeposit(
   );
 }
 
+// Envía la hora local del negocio como ISO con wall-clock marcado en UTC ("Z"),
+// tal como espera el RPC create_public_booking (convención de la migración:
+// "2026-09-15T14:30:00Z" -> guarda "2026-09-15 14:30:00" naive en el server).
+function toIsoWallClock(date: Date): string {
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(
+    date.getHours(),
+  )}:${pad(date.getMinutes())}:${pad(date.getSeconds())}Z`;
+}
+
 export async function createPublicBooking(input: {
   slug: string;
   serviceId: string;
@@ -458,7 +439,6 @@ export async function createPublicBooking(input: {
   notes?: string;
   receipt?: File;
 }): Promise<CreateBookingResult> {
-  const client = admin();
   const startDate = new Date(input.startsAt);
   if (Number.isNaN(startDate.getTime())) {
     return { ok: false, message: "La fecha seleccionada es inválida." };
@@ -467,181 +447,86 @@ export async function createPublicBooking(input: {
     return { ok: false, message: "El turno debe ser en una fecha futura." };
   }
 
-  const { data: tenant } = await client
+  const { data: tenant } = await supabaseClient
     .from("tenants")
-    .select("id, plan, status, trial_ends_at")
+    .select("id, slug, plan, status, trial_ends_at")
     .eq("slug", input.slug)
     .eq("status", "active")
     .maybeSingle();
   if (!tenant) return { ok: false, message: "El negocio no existe." };
 
-  const { data: activeSub } = await client
-    .from("subscriptions")
-    .select("status")
+  const { data: service } = await supabaseClient
+    .from("services")
+    .select("*")
+    .eq("id", input.serviceId)
     .eq("tenant_id", tenant.id)
-    .order("created_at", { ascending: false })
-    .limit(1)
+    .eq("active", true)
     .maybeSingle();
-  const access = tenantAccess(tenant, activeSub);
-  if (access === "blocked") {
-    return { ok: false, message: "El negocio no está disponible en este momento." };
-  }
-  const pro = access === "pro";
-
-  const [{ data: service }, { data: staff }, { data: link }] = await Promise.all([
-    client
-      .from("services")
-      .select("*")
-      .eq("id", input.serviceId)
-      .eq("tenant_id", tenant.id)
-      .eq("active", true)
-      .maybeSingle(),
-    client
-      .from("staff_members")
-      .select("*")
-      .eq("id", input.staffId)
-      .eq("tenant_id", tenant.id)
-      .eq("active", true)
-      .maybeSingle(),
-    client
-      .from("service_staff")
-      .select("*")
-      .eq("service_id", input.serviceId)
-      .eq("staff_id", input.staffId)
-      .maybeSingle(),
-  ]);
   if (!service) return { ok: false, message: "El servicio no está disponible." };
-  if (!staff) return { ok: false, message: "El profesional no está disponible." };
-  if (!link) return { ok: false, message: "Ese profesional no brinda ese servicio." };
 
   const wantsDeposit = Boolean(
     service.requires_deposit && service.deposit_amount && Number(service.deposit_amount) > 0,
   );
 
-  // Plan Gratis: señas permitidas pero con tope mensual (embudo a Pro).
-  if (wantsDeposit && access === "gratis") {
-    const monthDeposits = await countTenantMonthlyDeposits(tenant.id);
-    if (monthDeposits >= FREE_DEPOSIT_MONTHLY_LIMIT) {
-      return {
-        ok: false,
-        message:
-          "Este servicio requiere una seña y el negocio alcanzó el límite de señas de este mes. Volvé a intentarlo el mes que viene o contactá al negocio.",
-      };
+  let receiptPath: string | null = null;
+  if (input.receipt) {
+    receiptPath = await uploadPublicReceipt(input.receipt, tenant.slug);
+    if (wantsDeposit && !receiptPath) {
+      return { ok: false, message: "No se pudo guardar el comprobante. Intentá de nuevo." };
     }
   }
-
-  const startsAtDb = toDbTimestamp(startDate);
-  const endsAtDb = toDbTimestamp(new Date(startDate.getTime() + service.duration_minutes * 60_000));
-
-  const phone = input.clientPhone.trim();
-
-  // Buscar o crear el cliente
-  let clientId: string | null = null;
-  const { data: existingClient } = await client
-    .from("clients")
-    .select("id")
-    .eq("tenant_id", tenant.id)
-    .eq("phone", phone)
-    .maybeSingle();
-  if (existingClient) {
-    clientId = existingClient.id;
-  } else {
-    const { data: newClient, error: clientError } = await client
-      .from("clients")
-      .insert({
-        tenant_id: tenant.id,
-        name: input.clientName,
-        phone,
-        email: input.clientEmail?.trim() || null,
-      })
-      .select("id")
-      .single();
-    if (clientError || !newClient) {
-      return { ok: false, message: "No se pudo registrar el cliente. Intentá de nuevo." };
-    }
-    clientId = newClient.id;
-  }
-
-  // Crear el turno. El trigger prevent_overlap ya valida el solapamiento.
-  const { data: booking, error: bookingError } = await client
-    .from("bookings")
-    .insert({
-      tenant_id: tenant.id,
-      service_id: service.id,
-      staff_id: staff.id,
-      client_id: clientId,
-      starts_at: startsAtDb,
-      ends_at: endsAtDb,
-      status: "pending",
-      notes: input.notes?.trim() || null,
-    })
-    .select("id")
-    .single();
-
-  if (bookingError || !booking) {
-    const msg = bookingError?.message ?? "";
-    if (/solapamiento|overlap/i.test(msg)) {
-      return { ok: false, message: "Ese horario ya fue tomado. Elegí otro." };
-    }
-    return { ok: false, message: "Ese horario ya fue tomado. Elegí otro." };
-  }
-
-  // Programar recordatorio por email 24 h antes del turno (best effort, plan Pro).
-  const clientEmail = input.clientEmail?.trim();
-  if (pro && clientEmail) {
-    const scheduledFor = new Date(startDate.getTime() - 24 * 60 * 60 * 1000).toISOString();
-    await client.from("reminders").insert({
-      tenant_id: tenant.id,
-      booking_id: booking.id,
-      channel: "email",
-      status: "pending",
-      scheduled_for: scheduledFor,
-    });
-  }
-
-  const depositAmount = wantsDeposit ? Number(service.deposit_amount) : null;
-
-  if (depositAmount !== null && depositAmount > 0) {
-    if (!input.receipt) {
-      return {
-        ok: false,
-        message:
-          "Este servicio requiere una seña. Debés adjuntar el comprobante del pago para reservar.",
-      };
-    }
-
-    const receiptUrl = await uploadReceipt(client, input.receipt, tenant.id, booking.id);
-
-    const { error: payError } = await client.from("payments").insert({
-      tenant_id: tenant.id,
-      booking_id: booking.id,
-      amount: depositAmount,
-      method: "local",
-      status: "pending",
-      mp_payment_id: null,
-      receipt_url: receiptUrl,
-    });
-
-    if (payError) {
-      return { ok: false, message: "No se pudo guardar el comprobante del pago. Intentá de nuevo." };
-    }
-
+  if (wantsDeposit && !receiptPath) {
     return {
-      ok: true,
-      bookingId: booking.id,
-      deposit: { amount: depositAmount, method: "local", receiptUrl },
+      ok: false,
+      message:
+        "Este servicio requiere una seña. Debés adjuntar el comprobante del pago para reservar.",
     };
   }
 
-  return { ok: true, bookingId: booking.id };
+  const endsDate = new Date(startDate.getTime() + service.duration_minutes * 60_000);
+
+  const { data, error } = await supabaseClient.rpc("create_public_booking", {
+    p_tenant_id: tenant.id,
+    p_service_id: input.serviceId,
+    p_staff_id: input.staffId,
+    p_client: {
+      name: input.clientName,
+      phone: input.clientPhone.trim(),
+      email: input.clientEmail?.trim() || null,
+    },
+    p_starts_at: toIsoWallClock(startDate),
+    p_ends_at: toIsoWallClock(endsDate),
+    p_notes: input.notes?.trim() || null,
+    p_payment_method: "local",
+    p_amount: wantsDeposit ? Number(service.deposit_amount) : null,
+    p_is_paid: false,
+    p_receipt_path: receiptPath,
+  });
+
+  if (error || !data) {
+    return { ok: false, message: error?.message ?? "Ese horario ya fue tomado. Elegí otro." };
+  }
+
+  const created = data as any;
+  const deposit = created.deposit
+    ? {
+        amount: Number(created.deposit.amount),
+        method: created.deposit.method ?? "local",
+        receiptUrl: receiptPath,
+      }
+    : undefined;
+
+  return deposit
+    ? { ok: true, bookingId: created.id, deposit }
+    : { ok: true, bookingId: created.id };
 }
 
 // ---------------------------------------------------------------------------
-// Panel: consultas (usuario autenticado -> RLS)
+// Panel: consultas (usuario autenticado del tenant -> RLS current_tenant_id)
 // ---------------------------------------------------------------------------
 
 export async function listBookings(tenantId: string): Promise<BookingRow[]> {
-  const { data } = await svc()
+  const { data } = await supabaseClient
     .from("bookings")
     .select(
       "id, starts_at, ends_at, status, notes, services(name, duration_minutes, price), staff_members(name, color), clients(name, phone, email), payments(id, receipt_url, status)",
@@ -675,7 +560,7 @@ export async function listBookings(tenantId: string): Promise<BookingRow[]> {
 }
 
 export async function countRows(tenantId: string, table: "services" | "clients" | "staff_members") {
-  const { count } = await svc()
+  const { count } = await supabaseClient
     .from(table)
     .select("id", { count: "exact", head: true })
     .eq("tenant_id", tenantId);
@@ -683,7 +568,7 @@ export async function countRows(tenantId: string, table: "services" | "clients" 
 }
 
 export async function listServices(tenantId: string) {
-  const { data } = await svc()
+  const { data } = await supabaseClient
     .from("services")
     .select("*")
     .eq("tenant_id", tenantId)
@@ -692,9 +577,9 @@ export async function listServices(tenantId: string) {
   const serviceIds = (data ?? []).map((s: any) => s.id);
 
   const [{ data: staff }, { data: links }] = await Promise.all([
-    svc().from("staff_members").select("id, name").eq("tenant_id", tenantId),
+    supabaseClient.from("staff_members").select("id, name").eq("tenant_id", tenantId),
     serviceIds.length
-      ? svc().from("service_staff").select("*").in("service_id", serviceIds)
+      ? supabaseClient.from("service_staff").select("*").in("service_id", serviceIds)
       : Promise.resolve({ data: [] }),
   ]);
 
@@ -723,7 +608,7 @@ export async function listServices(tenantId: string) {
 }
 
 export async function listStaff(tenantId: string) {
-  const { data } = await svc()
+  const { data } = await supabaseClient
     .from("staff_members")
     .select("*")
     .eq("tenant_id", tenantId)
@@ -738,7 +623,7 @@ export async function listStaff(tenantId: string) {
 }
 
 export async function listStaffOptions(tenantId: string) {
-  const { data } = await svc()
+  const { data } = await supabaseClient
     .from("staff_members")
     .select("id, name")
     .eq("tenant_id", tenantId)
@@ -747,7 +632,7 @@ export async function listStaffOptions(tenantId: string) {
 }
 
 export async function listHours(tenantId: string) {
-  const { data } = await svc()
+  const { data } = await supabaseClient
     .from("business_hours")
     .select("*")
     .eq("tenant_id", tenantId);
@@ -762,7 +647,7 @@ export async function listHours(tenantId: string) {
 }
 
 export async function listClients(tenantId: string) {
-  const { data } = await svc()
+  const { data } = await supabaseClient
     .from("clients")
     .select("*")
     .eq("tenant_id", tenantId)
@@ -777,7 +662,7 @@ export async function listClients(tenantId: string) {
 }
 
 export async function getSubscription(tenantId: string) {
-  const { data: sub } = await svc()
+  const { data: sub } = await supabaseClient
     .from("subscriptions")
     .select("*")
     .eq("tenant_id", tenantId)
@@ -789,21 +674,19 @@ export async function getSubscription(tenantId: string) {
 }
 
 export async function getTenant(tenantId: string): Promise<DBTenant | null> {
-  const { data } = await svc().from("tenants").select("*").eq("id", tenantId).maybeSingle();
+  const { data } = await supabaseClient.from("tenants").select("*").eq("id", tenantId).maybeSingle();
   return dbTenant(data);
 }
-
 // ---------------------------------------------------------------------------
-// Panel maestro (superadmin) -> admin client
+// Panel maestro (superadmin) -> RLS is_superadmin
 // ---------------------------------------------------------------------------
 
 export async function listTenants() {
-  const client = admin();
-  const { data: tenants } = await client.from("tenants").select("*").order("created_at", { ascending: false });
-  const { data: profiles } = await client.from("profiles").select("*");
-  const { data: counts } = await client.from("bookings").select("tenant_id, id");
-  const { data: staffCounts } = await client.from("staff_members").select("tenant_id, id");
-  const { data: clientCounts } = await client.from("clients").select("tenant_id, id");
+  const { data: tenants } = await supabaseClient.from("tenants").select("*").order("created_at", { ascending: false });
+  const { data: profiles } = await supabaseClient.from("profiles").select("*");
+  const { data: counts } = await supabaseClient.from("bookings").select("tenant_id, id");
+  const { data: staffCounts } = await supabaseClient.from("staff_members").select("tenant_id, id");
+  const { data: clientCounts } = await supabaseClient.from("clients").select("tenant_id, id");
 
   const countBy = (rows: any[] | null, key: string) => {
     const map = new Map<string, number>();
@@ -835,7 +718,53 @@ export async function listTenants() {
 }
 
 export async function setTenantStatus(tenantId: string, status: "active" | "inactive") {
-  await admin().from("tenants").update({ status }).eq("id", tenantId);
+  await supabaseClient.from("tenants").update({ status }).eq("id", tenantId);
+}
+
+export type AdminUserRow = {
+  id: string;
+  email: string | null;
+  full_name: string | null;
+  role: string;
+  tenant_name: string | null;
+  tenant_slug: string | null;
+  created_at: string;
+};
+
+export async function listAdminUsers(): Promise<AdminUserRow[]> {
+  const { data: profiles } = await supabaseClient.from("profiles").select("*").order("created_at", { ascending: false });
+  const { data: tenants } = await supabaseClient.from("tenants").select("id, name, slug");
+  const tenantMap = new Map((tenants ?? []).map((t: any) => [t.id, t]));
+
+  return (profiles ?? []).map((p: any) => {
+    const t = p.tenant_id ? tenantMap.get(p.tenant_id) : null;
+    return {
+      id: p.id,
+      email: p.email ?? null,
+      full_name: p.full_name ?? null,
+      role: p.role,
+      tenant_name: t?.name ?? null,
+      tenant_slug: t?.slug ?? null,
+      created_at: p.created_at,
+    };
+  });
+}
+
+export async function setUserRole(userId: string, role: "owner" | "superadmin") {
+  await supabaseClient.from("profiles").update({ role }).eq("id", userId);
+}
+
+// Borra los datos del usuario y de su tenant (RPC SECURITY DEFINER). Solo el
+// dueño del tenant o un superadmin pueden invocarlo. El usuario de Supabase
+// Auth queda huérfano a propósito (decisión documentada del RPC delete_user_data).
+export async function deleteAdminUser(
+  userId: string,
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  const { data, error } = await supabaseClient.rpc("delete_user_data", { p_user_id: userId });
+  if (error || !data) {
+    return { ok: false, message: error?.message ?? "No se pudo eliminar el usuario." };
+  }
+  return { ok: true };
 }
 
 // ---------------------------------------------------------------------------
@@ -857,35 +786,6 @@ export type SubscriptionPaymentRow = {
   processed_at: string | null;
 };
 
-async function uploadPlanReceipt(
-  client: SupabaseClient,
-  file: File,
-  tenantId: string,
-): Promise<string | null> {
-  const ext = (file.name.split(".").pop() ?? "jpg").replace(/[^a-zA-Z0-9]/g, "").slice(0, 6);
-  const safeName = `plan-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
-  const path = `${tenantId}/plan/${safeName}`;
-  const bytes = Buffer.from(await file.arrayBuffer());
-
-  const { error: bucketError } = await client.storage.createBucket(RECEIPT_BUCKET, {
-    public: false,
-  });
-  if (bucketError && !/already exists/i.test(bucketError.message)) {
-    return null;
-  }
-
-  const { error } = await client.storage.from(RECEIPT_BUCKET).upload(path, bytes, {
-    contentType: file.type,
-    upsert: false,
-  });
-  if (error) return null;
-
-  const { data: urlData } = await client.storage
-    .from(RECEIPT_BUCKET)
-    .createSignedUrl(path, 60 * 60 * 24 * 365);
-  return urlData?.signedUrl ?? null;
-}
-
 export async function createSubscriptionPayment(input: {
   slug: string;
   amount: number;
@@ -893,15 +793,14 @@ export async function createSubscriptionPayment(input: {
   periodEnd?: string;
   receipt: File;
 }): Promise<{ ok: true } | { ok: false; message: string }> {
-  const client = admin();
-  const { data: tenant } = await client
+  const { data: tenant } = await supabaseClient
     .from("tenants")
     .select("id, status")
     .eq("slug", input.slug)
     .maybeSingle();
   if (!tenant) return { ok: false, message: "El negocio no existe." };
 
-  const { data: sub } = await client
+  const { data: sub } = await supabaseClient
     .from("subscriptions")
     .select("id")
     .eq("tenant_id", tenant.id)
@@ -909,10 +808,12 @@ export async function createSubscriptionPayment(input: {
     .limit(1)
     .maybeSingle();
 
-  const receiptUrl = await uploadPlanReceipt(client, input.receipt, tenant.id);
-  if (!receiptUrl) return { ok: false, message: "No se pudo guardar el comprobante. Intentá de nuevo." };
+  const receiptUrl = await uploadPlanReceipt(supabaseClient, input.receipt, tenant.id);
+  if (!receiptUrl) {
+    return { ok: false, message: "No se pudo guardar el comprobante. Intentá de nuevo." };
+  }
 
-  const { error } = await client.from("subscription_payments").insert({
+  const { error } = await supabaseClient.from("subscription_payments").insert({
     tenant_id: tenant.id,
     subscription_id: sub?.id ?? null,
     amount: input.amount,
@@ -921,14 +822,15 @@ export async function createSubscriptionPayment(input: {
     period_start: input.periodStart ?? null,
     period_end: input.periodEnd ?? null,
   });
-  if (error) return { ok: false, message: "No se pudo registrar el pago. Contactá al administrador." };
+  if (error) {
+    return { ok: false, message: "No se pudo registrar el pago. Contactá al administrador." };
+  }
 
   return { ok: true };
 }
 
 export async function listSubscriptionPayments(): Promise<SubscriptionPaymentRow[]> {
-  const client = admin();
-  const { data } = await client
+  const { data } = await supabaseClient
     .from("subscription_payments")
     .select("*, tenants(name, slug)")
     .order("created_at", { ascending: false });
@@ -952,24 +854,23 @@ export async function setSubscriptionPaymentStatus(
   paymentId: string,
   status: "paid" | "refunded" | "cancelled",
 ) {
-  const client = admin();
-  const { data: payment } = await client
+  const { data: payment } = await supabaseClient
     .from("subscription_payments")
     .select("tenant_id")
     .eq("id", paymentId)
     .maybeSingle();
-  await client
+  await supabaseClient
     .from("subscription_payments")
     .update({ status, processed_at: new Date().toISOString() })
     .eq("id", paymentId);
   if (status === "paid" && payment) {
-    await client.from("tenants").update({ status: "active" }).eq("id", payment.tenant_id);
-    const { data: period } = await client
+    await supabaseClient.from("tenants").update({ status: "active" }).eq("id", payment.tenant_id);
+    const { data: period } = await supabaseClient
       .from("subscription_payments")
       .select("period_end, period_start")
       .eq("id", paymentId)
       .maybeSingle();
-    const { data: sub } = await client
+    const { data: sub } = await supabaseClient
       .from("subscriptions")
       .select("id")
       .eq("tenant_id", payment.tenant_id)
@@ -982,8 +883,9 @@ export async function setSubscriptionPaymentStatus(
         period?.period_end ??
         new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString();
       const periodStart =
-        period?.period_start ?? (periodEnd ? new Date(new Date(periodEnd).getTime() - 30 * 24 * 60 * 60 * 1000).toISOString() : now.toISOString());
-      await client
+        period?.period_start ??
+        (periodEnd ? new Date(new Date(periodEnd).getTime() - 30 * 24 * 60 * 60 * 1000).toISOString() : now.toISOString());
+      await supabaseClient
         .from("subscriptions")
         .update({ status: "active", current_period_start: periodStart, current_period_end: periodEnd })
         .eq("id", sub.id);
@@ -992,8 +894,7 @@ export async function setSubscriptionPaymentStatus(
 }
 
 export async function setSubscriptionStatus(tenantId: string, status: string, periodEnd?: string) {
-  const client = admin();
-  const { data: sub } = await client
+  const { data: sub } = await supabaseClient
     .from("subscriptions")
     .select("id")
     .eq("tenant_id", tenantId)
@@ -1006,15 +907,12 @@ export async function setSubscriptionStatus(tenantId: string, status: string, pe
     updated_at: new Date().toISOString(),
     current_period_end: periodEnd ?? null,
   };
-  await client.from("subscriptions").update(upd).eq("id", sub.id);
+  await supabaseClient.from("subscriptions").update(upd).eq("id", sub.id);
 }
 
 // Superadmin: pasa un negocio de plan Free a Premium (o viceversa).
-// Premium = subscription activa con período vigente -> tenantAccess devuelve "pro".
-// Free = subscription cancelada y prueba vencida, plan "gratis" -> tenantAccess "gratis".
 export async function setTenantPlanAccess(tenantId: string, plan: "pro" | "gratis") {
-  const client = admin();
-  const { data: sub } = await client
+  const { data: sub } = await supabaseClient
     .from("subscriptions")
     .select("id")
     .eq("tenant_id", tenantId)
@@ -1026,7 +924,7 @@ export async function setTenantPlanAccess(tenantId: string, plan: "pro" | "grati
     const now = new Date();
     const periodEnd = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString();
     if (sub) {
-      await client
+      await supabaseClient
         .from("subscriptions")
         .update({
           plan: "pro",
@@ -1037,7 +935,7 @@ export async function setTenantPlanAccess(tenantId: string, plan: "pro" | "grati
         })
         .eq("id", sub.id);
     } else {
-      await client.from("subscriptions").insert({
+      await supabaseClient.from("subscriptions").insert({
         tenant_id: tenantId,
         plan: "pro",
         status: "active",
@@ -1045,11 +943,11 @@ export async function setTenantPlanAccess(tenantId: string, plan: "pro" | "grati
         current_period_end: periodEnd,
       });
     }
-    await client.from("tenants").update({ plan: "pro", status: "active" }).eq("id", tenantId);
+    await supabaseClient.from("tenants").update({ plan: "pro", status: "active" }).eq("id", tenantId);
   } else {
     const past = new Date(Date.now() - 1000).toISOString();
     if (sub) {
-      await client
+      await supabaseClient
         .from("subscriptions")
         .update({
           plan: "gratis",
@@ -1060,94 +958,7 @@ export async function setTenantPlanAccess(tenantId: string, plan: "pro" | "grati
         })
         .eq("id", sub.id);
     }
-    await client.from("tenants").update({ plan: "gratis", status: "active", trial_ends_at: past }).eq("id", tenantId);
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Panel maestro: usuarios, pagos y suscripciones
-// ---------------------------------------------------------------------------
-
-export type AdminUserRow = {
-  id: string;
-  email: string | null;
-  full_name: string | null;
-  role: string;
-  tenant_name: string | null;
-  tenant_slug: string | null;
-  created_at: string;
-};
-
-export async function listAdminUsers(): Promise<AdminUserRow[]> {
-  const client = admin();
-  const { data: profiles } = await client.from("profiles").select("*").order("created_at", { ascending: false });
-  const { data: tenants } = await client.from("tenants").select("id, name, slug");
-  const tenantMap = new Map((tenants ?? []).map((t: any) => [t.id, t]));
-
-  return (profiles ?? []).map((p: any) => {
-    const t = p.tenant_id ? tenantMap.get(p.tenant_id) : null;
-    return {
-      id: p.id,
-      email: p.email ?? null,
-      full_name: p.full_name ?? null,
-      role: p.role,
-      tenant_name: t?.name ?? null,
-      tenant_slug: t?.slug ?? null,
-      created_at: p.created_at,
-    };
-  });
-}
-
-export async function setUserRole(userId: string, role: "owner" | "superadmin") {
-  await admin().from("profiles").update({ role }).eq("id", userId);
-}
-
-// Elimina el usuario de Supabase Auth (borra su perfil por cascada) y, si era
-// el último integrante de un negocio, borra también el negocio completo.
-export async function deleteAdminUser(
-  userId: string,
-): Promise<{ ok: true } | { ok: false; message: string }> {
-  const client = admin();
-
-  const { data: profile } = await client
-    .from("profiles")
-    .select("tenant_id, role")
-    .eq("id", userId)
-    .maybeSingle();
-  if (!profile) return { ok: false, message: "El usuario no existe." };
-
-  const { error: authError } = await client.auth.admin.deleteUser(userId);
-  if (authError) return { ok: false, message: authError.message };
-
-  const tenantId = profile.tenant_id;
-  if (tenantId) {
-    const { data: tenants } = await client.from("tenants").select("id").eq("id", tenantId);
-    if (tenants && tenants.length > 0) {
-      const { data: remaining } = await client
-        .from("profiles")
-        .select("id")
-        .eq("tenant_id", tenantId)
-        .limit(1);
-      if (!remaining || remaining.length === 0) {
-        await removeTenantStorage(client, tenantId);
-        await client.from("tenants").delete().eq("id", tenantId);
-      }
-    }
-  }
-  return { ok: true };
-}
-
-// Best-effort: borra los archivos del negocio en los buckets de comprobantes y logos.
-async function removeTenantStorage(client: SupabaseClient, tenantId: string) {
-  for (const bucket of [RECEIPT_BUCKET, LOGO_BUCKET]) {
-    try {
-      const { data: files } = await client.storage.from(bucket).list(tenantId);
-      if (files && files.length > 0) {
-        await client.storage.from(bucket).remove(files.map((f) => `${tenantId}/${f.name}`));
-      }
-    } catch {
-      // best-effort: si el bucket o la carpeta no existen, seguir.
-    }
+    await supabaseClient.from("tenants").update({ plan: "gratis", status: "active", trial_ends_at: past }).eq("id", tenantId);
   }
 }
 
@@ -1166,8 +977,7 @@ export type AdminPaymentRow = {
 };
 
 export async function listAdminPayments(): Promise<AdminPaymentRow[]> {
-  const client = admin();
-  const { data: subPayments } = await client
+  const { data: subPayments } = await supabaseClient
     .from("subscription_payments")
     .select("*, tenants(name, slug, profiles(email, full_name, role))")
     .order("created_at", { ascending: false });
@@ -1219,8 +1029,7 @@ export type AdminSubscriptionRow = {
 };
 
 export async function listAdminSubscriptions(): Promise<AdminSubscriptionRow[]> {
-  const client = admin();
-  const { data: subs } = await client
+  const { data: subs } = await supabaseClient
     .from("subscriptions")
     .select("*, tenants(name, slug)")
     .order("created_at", { ascending: false });
@@ -1238,7 +1047,7 @@ export async function listAdminSubscriptions(): Promise<AdminSubscriptionRow[]> 
 }
 
 export async function getTenantOwner(tenantId: string) {
-  const { data } = await svc()
+  const { data } = await supabaseClient
     .from("profiles")
     .select("id, email, full_name, role, created_at")
     .eq("tenant_id", tenantId)
@@ -1255,21 +1064,39 @@ export async function getTenantOwner(tenantId: string) {
     : null;
 }
 
-// Detalle de negocio para superadmin -> usa admin() (sin RLS)
+// Detalle de negocio para superadmin (RLS is_superadmin).
 export async function getAdminTenantDetail(tenantId: string) {
-  const client = admin();
   const [{ data: tenant }, { data: owner }, { data: sub }] = await Promise.all([
-    client.from("tenants").select("*").eq("id", tenantId).maybeSingle(),
-    client.from("profiles").select("id, email, full_name, role, created_at").eq("tenant_id", tenantId).eq("role", "owner").maybeSingle(),
-    client.from("subscriptions").select("*").eq("tenant_id", tenantId).order("created_at", { ascending: false }).limit(1).maybeSingle(),
+    supabaseClient.from("tenants").select("*").eq("id", tenantId).maybeSingle(),
+    supabaseClient
+      .from("profiles")
+      .select("id, email, full_name, role, created_at")
+      .eq("tenant_id", tenantId)
+      .eq("role", "owner")
+      .maybeSingle(),
+    supabaseClient
+      .from("subscriptions")
+      .select("*")
+      .eq("tenant_id", tenantId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
   ]);
 
   const [{ data: services }, { data: staff }, { data: bookings }, { data: payments }] =
     await Promise.all([
-      client.from("services").select("*").eq("tenant_id", tenantId).order("name", { ascending: true }),
-      client.from("staff_members").select("*").eq("tenant_id", tenantId),
-      client.from("bookings").select("id, starts_at, services(name), clients(name)").eq("tenant_id", tenantId).order("starts_at", { ascending: true }),
-      client.from("payments").select("id, amount, status, created_at").eq("tenant_id", tenantId).order("created_at", { ascending: false }),
+      supabaseClient.from("services").select("*").eq("tenant_id", tenantId).order("name", { ascending: true }),
+      supabaseClient.from("staff_members").select("*").eq("tenant_id", tenantId),
+      supabaseClient
+        .from("bookings")
+        .select("id, starts_at, services(name), clients(name)")
+        .eq("tenant_id", tenantId)
+        .order("starts_at", { ascending: true }),
+      supabaseClient
+        .from("payments")
+        .select("id, amount, status, created_at")
+        .eq("tenant_id", tenantId)
+        .order("created_at", { ascending: false }),
     ]);
 
   return {
@@ -1319,7 +1146,6 @@ export async function getAdminTenantDetail(tenantId: string) {
     })),
   };
 }
-
 // Datos para la página pública "Abonar plan" de un negocio inactivo.
 // El plan se abona al superadmin: muestra datos del tenant del superadmin.
 export type PlanPaymentData = {
@@ -1333,41 +1159,50 @@ export type PlanPaymentData = {
 };
 
 export async function getPlanPaymentData(slug: string): Promise<PlanPaymentData | null> {
-  const client = admin();
-  const { data: tenant } = await client
+  const { data: tenant } = await supabaseClient
     .from("tenants")
-    .select("id, name, slug, status")
+    .select("id, name, slug, status, plan")
     .eq("slug", slug)
     .maybeSingle();
   if (!tenant) return null;
 
   const sub = await getSubscription(tenant.id);
 
-  const { data: superAdmins } = await client
-    .from("profiles")
-    .select("tenant_id")
-    .eq("role", "superadmin")
-    .limit(1);
-  let bank = { alias_cbu: null as string | null, banco: null as string | null, titular: null as string | null };
-  if (superAdmins && superAdmins[0]?.tenant_id) {
-    const { data: st } = await client
-      .from("tenants")
-      .select("alias_cbu, banco, titular")
-      .eq("id", superAdmins[0].tenant_id)
-      .maybeSingle();
-    if (st) {
-      bank = {
-        alias_cbu: st.alias_cbu ?? null,
-        banco: st.banco ?? null,
-        titular: st.titular ?? null,
-      };
+  // Los perfiles de superadmin solo son legibles por un superadmin (RLS). Con
+  // anon key el banco queda null y el form avisa ("Contactá al administrador").
+  let bank = {
+    alias_cbu: null as string | null,
+    banco: null as string | null,
+    titular: null as string | null,
+  };
+  try {
+    const { data: superAdmins } = await supabaseClient
+      .from("profiles")
+      .select("tenant_id")
+      .eq("role", "superadmin")
+      .limit(1);
+    if (superAdmins && superAdmins[0]?.tenant_id) {
+      const { data: st } = await supabaseClient
+        .from("tenants")
+        .select("alias_cbu, banco, titular")
+        .eq("id", superAdmins[0].tenant_id)
+        .maybeSingle();
+      if (st) {
+        bank = {
+          alias_cbu: st.alias_cbu ?? null,
+          banco: st.banco ?? null,
+          titular: st.titular ?? null,
+        };
+      }
     }
+  } catch {
+    // anon key sin policies de perfiles -> banco null.
   }
 
   return {
     tenantName: tenant.name,
     tenantSlug: tenant.slug,
-    plan: sub?.plan ?? "pro",
+    plan: sub?.plan ?? tenant.plan ?? "pro",
     subscriptionStatus: sub?.status ?? "trial",
     currentPeriodEnd: sub?.current_period_end ?? null,
     amount: 8000,
@@ -1376,7 +1211,7 @@ export async function getPlanPaymentData(slug: string): Promise<PlanPaymentData 
 }
 
 // ---------------------------------------------------------------------------
-// Panel maestro: Dashboard (métricas globales)
+// Panel maestro: Dashboard (métricas globales, superadmin)
 // ---------------------------------------------------------------------------
 
 export type AdminDashboardStats = {
@@ -1387,11 +1222,9 @@ export type AdminDashboardStats = {
 };
 
 export async function getAdminDashboardStats(): Promise<AdminDashboardStats> {
-  const client = admin();
-
   const [{ data: tenants }, { data: users }] = await Promise.all([
-    client.from("tenants").select("id, status"),
-    client.from("profiles").select("id, role"),
+    supabaseClient.from("tenants").select("id, status"),
+    supabaseClient.from("profiles").select("id, role"),
   ]);
 
   type DashboardTenant = { id: string; status: string };
@@ -1411,8 +1244,8 @@ export async function getAdminDashboardStats(): Promise<AdminDashboardStats> {
 
   // Los ingresos son solo de las suscripciones abonadas, no de las señas.
   const [{ data: subPayments }, { data: pendingPlan }] = await Promise.all([
-    client.from("subscription_payments").select("amount, status, created_at"),
-    client.from("subscription_payments").select("id").eq("status", "pending"),
+    supabaseClient.from("subscription_payments").select("amount, status, created_at"),
+    supabaseClient.from("subscription_payments").select("id").eq("status", "pending"),
   ]);
 
   const subRows = (subPayments ?? []) as DashboardSubPayment[];
@@ -1431,7 +1264,7 @@ export async function getAdminDashboardStats(): Promise<AdminDashboardStats> {
 }
 
 // ---------------------------------------------------------------------------
-// Panel: mutaciones (usuario autenticado -> RLS)
+// Panel: mutaciones (usuario autenticado del tenant -> RLS)
 // ---------------------------------------------------------------------------
 
 export async function createService(input: {
@@ -1444,8 +1277,7 @@ export async function createService(input: {
   depositAmount: number | null;
   staffIds: string[];
 }): Promise<{ ok: true } | { ok: false; message: string }> {
-  const client = svc();
-  const { data: service, error } = await client
+  const { data: service, error } = await supabaseClient
     .from("services")
     .insert({
       tenant_id: input.tenantId,
@@ -1462,12 +1294,12 @@ export async function createService(input: {
   if (error || !service) {
     return { ok: false, message: "No se pudo crear el servicio. Intentá de nuevo." };
   }
-  await linkServices(client, input.tenantId, service.id, input.staffIds);
+  await linkServices(input.tenantId, service.id, input.staffIds);
   return { ok: true };
 }
 
 export async function setServiceActive(tenantId: string, id: string, active: boolean) {
-  await svc().from("services").update({ active }).eq("id", id).eq("tenant_id", tenantId);
+  await supabaseClient.from("services").update({ active }).eq("id", id).eq("tenant_id", tenantId);
 }
 
 export async function updateService(
@@ -1483,8 +1315,7 @@ export async function updateService(
     staffIds: string[];
   },
 ): Promise<{ ok: true } | { ok: false; message: string }> {
-  const client = svc();
-  const { error } = await client
+  const { error } = await supabaseClient
     .from("services")
     .update({
       name: input.name,
@@ -1499,20 +1330,19 @@ export async function updateService(
   if (error) {
     return { ok: false, message: "No se pudo actualizar el servicio. Intentá de nuevo." };
   }
-  await client.from("service_staff").delete().eq("service_id", id);
-  await linkServices(client, tenantId, id, input.staffIds);
+  await supabaseClient.from("service_staff").delete().eq("service_id", id);
+  await linkServices(tenantId, id, input.staffIds);
   return { ok: true };
 }
 
 export async function deleteService(tenantId: string, id: string) {
-  const client = svc();
-  await client.from("service_staff").delete().eq("service_id", id);
-  await client.from("services").delete().eq("id", id).eq("tenant_id", tenantId);
+  await supabaseClient.from("service_staff").delete().eq("service_id", id);
+  await supabaseClient.from("services").delete().eq("id", id).eq("tenant_id", tenantId);
 }
 
-async function linkServices(client: SupabaseClient, tenantId: string, serviceId: string, staffIds: string[]) {
+async function linkServices(tenantId: string, serviceId: string, staffIds: string[]) {
   for (const staffId of staffIds) {
-    await client.from("service_staff").insert({ service_id: serviceId, staff_id: staffId });
+    await supabaseClient.from("service_staff").insert({ service_id: serviceId, staff_id: staffId });
   }
 }
 
@@ -1521,14 +1351,13 @@ export async function createStaff(
   name: string,
   color: string,
 ): Promise<{ ok: true } | { ok: false; message: string }> {
-  const client = svc();
-  const { data: tenant } = await client
+  const { data: tenant } = await supabaseClient
     .from("tenants")
     .select("plan, status, trial_ends_at")
     .eq("id", tenantId)
     .maybeSingle();
   if (tenant) {
-    const { data: sub } = await client
+    const { data: sub } = await supabaseClient
       .from("subscriptions")
       .select("status")
       .eq("tenant_id", tenantId)
@@ -1536,7 +1365,7 @@ export async function createStaff(
       .limit(1)
       .maybeSingle();
     if (tenantAccess(tenant, sub) === "gratis") {
-      const { count } = await client
+      const { count } = await supabaseClient
         .from("staff_members")
         .select("id", { count: "exact", head: true })
         .eq("tenant_id", tenantId);
@@ -1550,7 +1379,7 @@ export async function createStaff(
     }
   }
 
-  const { error } = await client
+  const { error } = await supabaseClient
     .from("staff_members")
     .insert({ tenant_id: tenantId, name, color, active: true });
   if (error) {
@@ -1560,7 +1389,7 @@ export async function createStaff(
 }
 
 export async function setStaffActive(tenantId: string, id: string, active: boolean) {
-  await svc().from("staff_members").update({ active }).eq("id", id).eq("tenant_id", tenantId);
+  await supabaseClient.from("staff_members").update({ active }).eq("id", id).eq("tenant_id", tenantId);
 }
 
 export async function createHours(input: {
@@ -1570,16 +1399,14 @@ export async function createHours(input: {
   opens: string;
   closes: string;
 }): Promise<{ ok: true } | { ok: false; message: string }> {
-  const { error } = await svc()
-    .from("business_hours")
-    .insert({
-      tenant_id: input.tenantId,
-      staff_id: input.staffId,
-      day_of_week: input.dayOfWeek,
-      opens: input.opens,
-      closes: input.closes,
-      active: true,
-    });
+  const { error } = await supabaseClient.from("business_hours").insert({
+    tenant_id: input.tenantId,
+    staff_id: input.staffId,
+    day_of_week: input.dayOfWeek,
+    opens: input.opens,
+    closes: input.closes,
+    active: true,
+  });
   if (error) {
     return { ok: false, message: "No se pudo guardar el horario. Intentá de nuevo." };
   }
@@ -1587,7 +1414,7 @@ export async function createHours(input: {
 }
 
 export async function deleteHours(tenantId: string, id: string) {
-  await svc().from("business_hours").delete().eq("id", id).eq("tenant_id", tenantId);
+  await supabaseClient.from("business_hours").delete().eq("id", id).eq("tenant_id", tenantId);
 }
 
 export async function createClient(
@@ -1596,9 +1423,7 @@ export async function createClient(
   phone: string | null,
   email: string | null,
 ) {
-  await svc()
-    .from("clients")
-    .insert({ tenant_id: tenantId, name, phone, email });
+  await supabaseClient.from("clients").insert({ tenant_id: tenantId, name, phone, email });
 }
 
 export async function updateTenant(
@@ -1616,7 +1441,7 @@ export async function updateTenant(
     titular?: string | null;
   },
 ) {
-  await svc()
+  await supabaseClient
     .from("tenants")
     .update({
       name: data.name,
@@ -1630,14 +1455,13 @@ export async function updateTenant(
       banco: data.banco ?? null,
       titular: data.titular ?? null,
     })
-    .eq("id", tenantId)
-    .throwOnError();
+    .eq("id", tenantId);
 }
 
 export async function updateBookingStatus(tenantId: string, id: string, status: string) {
   const valid = ["pending", "confirmed", "completed", "cancelled", "no_show"];
   if (!valid.includes(status)) return;
-  await svc().from("bookings").update({ status }).eq("id", id).eq("tenant_id", tenantId);
+  await supabaseClient.from("bookings").update({ status }).eq("id", id).eq("tenant_id", tenantId);
 }
 
 // El dueño valida la seña de un turno de su negocio (RLS: payments_all del tenant).
@@ -1646,7 +1470,7 @@ export async function updateBookingPaymentStatus(
   paymentId: string,
   status: "paid" | "refunded",
 ) {
-  const { error } = await svc()
+  const { error } = await supabaseClient
     .from("payments")
     .update({ status })
     .eq("id", paymentId)
@@ -1655,11 +1479,11 @@ export async function updateBookingPaymentStatus(
 }
 
 export async function deleteBooking(tenantId: string, id: string) {
-  await svc().from("bookings").delete().eq("id", id).eq("tenant_id", tenantId);
+  await supabaseClient.from("bookings").delete().eq("id", id).eq("tenant_id", tenantId);
 }
 
 export async function getSellerAccount(tenantId: string): Promise<DBSellerAccount | null> {
-  const { data } = await svc()
+  const { data } = await supabaseClient
     .from("seller_accounts")
     .select("*")
     .eq("tenant_id", tenantId)
@@ -1685,7 +1509,6 @@ export async function saveSellerAccount(
     commission_pct?: number;
   },
 ): Promise<DBSellerAccount> {
-  const client = svc();
   const existing = await getSellerAccount(tenantId);
   if (existing) {
     const updates: any = {
@@ -1694,7 +1517,7 @@ export async function saveSellerAccount(
       refresh_token: data.refresh_token,
     };
     if (data.commission_pct !== undefined) updates.commission_pct = data.commission_pct;
-    const { data: row } = await client
+    const { data: row } = await supabaseClient
       .from("seller_accounts")
       .update(updates)
       .eq("tenant_id", tenantId)
@@ -1702,7 +1525,7 @@ export async function saveSellerAccount(
       .maybeSingle();
     return row;
   }
-  const { data: row } = await client
+  const { data: row } = await supabaseClient
     .from("seller_accounts")
     .insert({
       tenant_id: tenantId,
@@ -1717,11 +1540,11 @@ export async function saveSellerAccount(
 }
 
 export async function deleteSellerAccount(tenantId: string) {
-  await svc().from("seller_accounts").delete().eq("tenant_id", tenantId);
+  await supabaseClient.from("seller_accounts").delete().eq("tenant_id", tenantId);
 }
 
 export async function listPayments(tenantId: string): Promise<DBPayment[]> {
-  const { data } = await svc()
+  const { data } = await supabaseClient
     .from("payments")
     .select("*")
     .eq("tenant_id", tenantId)
@@ -1738,3 +1561,62 @@ export async function listPayments(tenantId: string): Promise<DBPayment[]> {
     created_at: p.created_at,
   }));
 }
+
+// ---------------------------------------------------------------------------
+// Objeto agregado para la SPA (import { db } from "@/lib/db/api")
+// ---------------------------------------------------------------------------
+export const db = {
+  tenantAccess,
+  countTenantMonthlyDeposits,
+  uploadLogo,
+  getUserWithTenant,
+  getUserWithTenantId,
+  onboardTenant,
+  getPublicBookingData,
+  getBookedSlotRows,
+  getBookedSlots,
+  serviceRequiresDeposit,
+  createPublicBooking,
+  listBookings,
+  countRows,
+  listServices,
+  listStaff,
+  listStaffOptions,
+  listHours,
+  listClients,
+  getSubscription,
+  getTenant,
+  listTenants,
+  setTenantStatus,
+  createSubscriptionPayment,
+  listSubscriptionPayments,
+  setSubscriptionPaymentStatus,
+  setSubscriptionStatus,
+  setTenantPlanAccess,
+  listAdminUsers,
+  setUserRole,
+  deleteAdminUser,
+  listAdminPayments,
+  listAdminSubscriptions,
+  getTenantOwner,
+  getAdminTenantDetail,
+  getPlanPaymentData,
+  getAdminDashboardStats,
+  createService,
+  setServiceActive,
+  updateService,
+  deleteService,
+  createStaff,
+  setStaffActive,
+  createHours,
+  deleteHours,
+  createClient,
+  updateTenant,
+  updateBookingStatus,
+  updateBookingPaymentStatus,
+  deleteBooking,
+  getSellerAccount,
+  saveSellerAccount,
+  deleteSellerAccount,
+  listPayments,
+};

@@ -1,7 +1,22 @@
-"use client";
+import { useState, type FormEvent, type ReactNode } from "react";
+import { useNavigate } from "react-router-dom";
+import { z } from "zod";
+import { db } from "@/lib/db/api";
+import { supabaseClient } from "@/lib/supabase/client";
 
-import { useActionState } from "react";
-import { onboarding, type OnboardingState } from "@/app/actions/onboarding";
+const OnboardingSchema = z.object({
+  businessName: z.string().min(2, "El nombre del negocio es obligatorio"),
+  fullName: z.string().min(2, "Tu nombre es obligatorio"),
+  email: z.string().email("Ingresá un email válido"),
+  password: z.string().min(8, "La contraseña debe tener al menos 8 caracteres"),
+  phone: z.string().optional(),
+  plan: z.enum(["gratis", "pro"]).optional(),
+});
+
+type OnboardingState = {
+  errors?: Record<string, string[]>;
+  message?: string;
+};
 
 const PLAN_INFO: Record<string, { nombre: string; precio: string }> = {
   gratis: { nombre: "Gratis", precio: "$0" },
@@ -9,22 +24,76 @@ const PLAN_INFO: Record<string, { nombre: string; precio: string }> = {
 };
 
 export default function RegistroForm({ plan }: { plan: "pro" | "gratis" | null }) {
-  const [state, formAction, pending] = useActionState<OnboardingState, FormData>(
-    onboarding,
-    {},
-  );
+  const [state, setState] = useState<OnboardingState>({});
+  const [pending, setPending] = useState(false);
+  const navigate = useNavigate();
 
   const planInfo = plan ? PLAN_INFO[plan] : null;
 
+  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setState({});
+    const form = e.currentTarget;
+    const fd = new FormData(form);
+    const parsed = OnboardingSchema.safeParse({
+      businessName: fd.get("businessName"),
+      fullName: fd.get("fullName"),
+      email: fd.get("email"),
+      password: fd.get("password"),
+      phone: fd.get("phone") || undefined,
+      plan: fd.get("plan") || undefined,
+    });
+    if (!parsed.success) {
+      setState({ errors: parsed.error.flatten().fieldErrors });
+      return;
+    }
+
+    const { businessName, fullName, email, password, phone, plan: selectedPlan } = parsed.data;
+
+    setPending(true);
+    try {
+      // El alta se hace con el RPC onboard_tenant (SECURITY DEFINER): crea el
+      // auth user, el tenant, el perfil owner, la suscripción y el horario.
+      const result = await db.onboardTenant({
+        userId: "",
+        password,
+        businessName,
+        fullName,
+        email,
+        phone,
+        plan: selectedPlan,
+      });
+      if (!result.ok) {
+        setState({ message: result.message });
+        return;
+      }
+
+      const { error: signInError } = await supabaseClient.auth.signInWithPassword({
+        email,
+        password,
+      });
+      if (signInError) {
+        setState({
+          message: "Cuenta creada. Iniciá sesión desde /login.",
+        });
+        return;
+      }
+
+      navigate("/panel");
+    } catch {
+      setState({ message: "No se pudo crear la cuenta. Intentá de nuevo." });
+    } finally {
+      setPending(false);
+    }
+  }
+
   return (
-    <form action={formAction} className="space-y-4">
-      {state?.message && (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      {state.message && (
         <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-700">{state.message}</p>
       )}
 
-      {planInfo && (
-        <input type="hidden" name="plan" value={plan ?? ""} />
-      )}
+      {plan && <input type="hidden" name="plan" value={plan} />}
 
       {plan && (
         <div className="rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm">
@@ -38,7 +107,7 @@ export default function RegistroForm({ plan }: { plan: "pro" | "gratis" | null }
         </div>
       )}
 
-      <Field label="Nombre del negocio" name="businessName" error={state?.errors?.businessName}>
+      <Field label="Nombre del negocio" name="businessName" error={state.errors?.businessName}>
         <input
           type="text"
           name="businessName"
@@ -48,15 +117,15 @@ export default function RegistroForm({ plan }: { plan: "pro" | "gratis" | null }
         />
       </Field>
 
-      <Field label="Tu nombre" name="fullName" error={state?.errors?.fullName}>
+      <Field label="Tu nombre" name="fullName" error={state.errors?.fullName}>
         <input type="text" name="fullName" required className={inputClass} placeholder="Juan Pérez" />
       </Field>
 
-      <Field label="Email" name="email" error={state?.errors?.email}>
+      <Field label="Email" name="email" error={state.errors?.email}>
         <input type="email" name="email" required className={inputClass} placeholder="tucorreo@email.com" />
       </Field>
 
-      <Field label="Contraseña" name="password" error={state?.errors?.password}>
+      <Field label="Contraseña" name="password" error={state.errors?.password}>
         <input
           type="password"
           name="password"
@@ -67,7 +136,7 @@ export default function RegistroForm({ plan }: { plan: "pro" | "gratis" | null }
         />
       </Field>
 
-      <Field label="WhatsApp (opcional)" name="phone" error={state?.errors?.phone}>
+      <Field label="WhatsApp (opcional)" name="phone" error={state.errors?.phone}>
         <input type="tel" name="phone" className={inputClass} placeholder="11 2345 6789" />
       </Field>
 
@@ -98,7 +167,7 @@ function Field({
   label: string;
   name: string;
   error?: string[];
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   return (
     <div>

@@ -1,5 +1,3 @@
-"use client";
-
 import { useEffect, useRef, useState } from "react";
 
 export default function ShareButton({
@@ -19,7 +17,8 @@ export default function ShareButton({
   const wrapRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const url = () => `${window.location.origin}${path}`;
+  const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
+  const url = () => `${window.location.origin}${basePath}${path}`;
 
   useEffect(() => {
     if (!open) return;

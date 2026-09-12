@@ -1,7 +1,6 @@
-"use client";
-
-import { useActionState } from "react";
-import { submitPlanPayment } from "@/app/actions/subscription";
+import { useState, type FormEvent } from "react";
+import { z } from "zod";
+import { db } from "@/lib/db/api";
 
 function formatMoney(n: number) {
   return "$" + new Intl.NumberFormat("es-AR").format(n);
@@ -17,8 +16,68 @@ export type AbonarFormProps = {
   bank: { alias_cbu: string | null; banco: string | null; titular: string | null };
 };
 
+const PlanPaymentSchema = z.object({
+  slug: z.string().min(1),
+  receipt: z
+    .instanceof(File)
+    .refine((f) => f.size > 0 && f.size <= 5 * 1024 * 1024, {
+      message: "El comprobante debe pesar menos de 5 MB.",
+    })
+    .refine(
+      (f) => ["image/jpeg", "image/png", "image/webp", "application/pdf"].includes(f.type),
+      { message: "Formato no válido. Usá JPG, PNG, WEBP o PDF." },
+    ),
+});
+
+type SubmitPlanPaymentState = {
+  message?: string;
+  errors?: { receipt?: string[] };
+  success?: boolean;
+};
+
 export default function AbonarForm(props: AbonarFormProps) {
-  const [state, formAction, pending] = useActionState(submitPlanPayment, {});
+  const [state, setState] = useState<SubmitPlanPaymentState>({});
+  const [pending, setPending] = useState(false);
+
+  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setState({});
+    const form = e.currentTarget;
+    const fd = new FormData(form);
+    const parsed = PlanPaymentSchema.safeParse({
+      slug: fd.get("slug"),
+      receipt: fd.get("receipt"),
+    });
+
+    if (!parsed.success) {
+      const fieldErrors = parsed.error.flatten().fieldErrors;
+      setState({
+        message: "Completá el formulario correctamente.",
+        errors: { receipt: fieldErrors.receipt },
+      });
+      return;
+    }
+
+    setPending(true);
+    try {
+      const result = await db.createSubscriptionPayment({
+        slug: parsed.data.slug,
+        amount: 8000,
+        receipt: parsed.data.receipt,
+      });
+
+      if (!result.ok) {
+        setState({ message: result.message });
+        return;
+      }
+
+      setState({ success: true });
+    } catch {
+      setState({ message: "No se pudo enviar el comprobante. Intentá de nuevo." });
+    } finally {
+      setPending(false);
+    }
+  }
 
   return (
     <div className="mx-auto max-w-xl px-4 py-10">
@@ -68,7 +127,7 @@ export default function AbonarForm(props: AbonarFormProps) {
           </p>
         )}
 
-        <form action={formAction} className="mt-6 space-y-4">
+        <form onSubmit={handleSubmit} className="mt-6 space-y-4">
           <input type="hidden" name="slug" value={props.tenantSlug} />
 
           <div>
@@ -83,19 +142,19 @@ export default function AbonarForm(props: AbonarFormProps) {
               required
               className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-700 file:mr-3 file:rounded-lg file:border-0 file:bg-indigo-600 file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-white"
             />
-            {state?.errors?.receipt && (
+            {state.errors?.receipt && (
               <p className="mt-1 text-xs text-red-600">{state.errors.receipt[0]}</p>
             )}
             <p className="mt-1 text-xs text-slate-400">JPG, PNG, WEBP o PDF · máx 5 MB</p>
           </div>
 
-          {state?.message && (
+          {state.message && (
             <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-700">
               {state.message}
             </p>
           )}
 
-          {state?.success ? (
+          {state.success ? (
             <div className="rounded-2xl bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">
               ✅ Comprobante enviado. El administrador lo revisará para reactivar tu negocio.
             </div>

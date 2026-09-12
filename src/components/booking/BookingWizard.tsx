@@ -1,10 +1,8 @@
-"use client";
-
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { useActionState } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import ShareButton from "@/components/ShareButton";
-import { reservar, type ReservaState } from "@/app/actions/booking";
+import { db } from "@/lib/db/api";
 import type { BusinessHours, Service, ServiceStaff, StaffMember, TenantPublic } from "@/lib/types";
+import { z } from "zod";
 import {
   dateKey,
   DAY_NAMES_SHORT,
@@ -24,6 +22,25 @@ type Props = {
 };
 
 type BookedSlot = { starts_at: string; ends_at: string };
+
+type ReservaState = {
+  ok?: boolean;
+  bookingId?: string;
+  deposit?: { amount: number; method: string; receiptUrl?: string | null };
+  message?: string;
+  errors?: Record<string, string[]>;
+};
+
+const ReservaSchema = z.object({
+  slug: z.string().min(1),
+  serviceId: z.string().min(1, "Servicio inválido"),
+  staffId: z.string().min(1, "Profesional inválido"),
+  startsAt: z.string().min(1, "Elegí un horario"),
+  clientName: z.string().min(2, "Ingresá tu nombre"),
+  clientPhone: z.string().min(6, "Ingresá un teléfono válido"),
+  clientEmail: z.string().email("Ingresá un email válido"),
+  notes: z.string().optional(),
+});
 
 function naiveToDate(value: string): Date {
   return new Date(value.replace(" ", "T"));
@@ -63,11 +80,10 @@ export default function BookingWizard({ tenant, services, staff, serviceStaff, h
   const [booked, setBooked] = useState<BookedSlot[]>([]);
   const [now, setNow] = useState<number>(() => Date.now());
 
-  const [{ ok, bookingId, message, errors, deposit }, formAction, pending] = useActionState<
-    ReservaState,
-    FormData
-  >(reservar, {});
+  const [reserva, setReserva] = useState<ReservaState>({});
+  const [pending, setPending] = useState(false);
 
+  const [receiptFile, setReceiptFile] = useState<File | null>(null);
   const [receiptName, setReceiptName] = useState("");
   const [receiptError, setReceiptError] = useState("");
   const [transferOpen, setTransferOpen] = useState(true);
@@ -76,6 +92,10 @@ export default function BookingWizard({ tenant, services, staff, serviceStaff, h
   const requestRef = useRef(0);
 
   const service = services.find((s) => s.id === serviceId) ?? null;
+
+  const hasTransfer =
+    Boolean(tenant.alias_cbu) || Boolean(tenant.titular) || Boolean(tenant.banco);
+  const requiresDeposit = Boolean(service?.requires_deposit && service?.deposit_amount != null);
 
   const availableStaff = useMemo(() => {
     if (!serviceId) return [];
@@ -135,14 +155,9 @@ export default function BookingWizard({ tenant, services, staff, serviceStaff, h
   useEffect(() => {
     if (!staffId || !selectedDate || !tenant.id) return;
     const req = ++requestRef.current;
-    fetch(
-      `/api/disponibilidad?tenant=${encodeURIComponent(tenant.id)}&staff=${encodeURIComponent(
-        staffId,
-      )}&date=${encodeURIComponent(selectedDate)}`,
-    )
-      .then((r) => r.json())
-      .then((data) => {
-        if (req === requestRef.current) setBooked(data.slots ?? []);
+    db.getBookedSlots(tenant.id, staffId, selectedDate)
+      .then((slots) => {
+        if (req === requestRef.current) setBooked(slots ?? []);
       })
       .catch(() => {
         if (req === requestRef.current) setBooked([]);
@@ -171,19 +186,71 @@ export default function BookingWizard({ tenant, services, staff, serviceStaff, h
     setStep("time");
   };
 
-  const currentIndex = step === "done" ? 3 : STEPS.indexOf(step as Step);
-  const hasTransfer =
-    Boolean(tenant.alias_cbu) || Boolean(tenant.titular) || Boolean(tenant.banco);
-  const requiresDeposit = Boolean(service?.requires_deposit && service?.deposit_amount != null);
+  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (pending) return;
+    setReserva({});
+    const fd = new FormData(e.currentTarget);
+    const parsed = ReservaSchema.safeParse({
+      slug: tenant.slug,
+      serviceId,
+      staffId,
+      startsAt: `${selectedDate}T${selectedTime}:00`,
+      clientName: fd.get("clientName"),
+      clientPhone: fd.get("clientPhone"),
+      clientEmail: fd.get("clientEmail"),
+      notes: fd.get("notes"),
+    });
 
-  if (ok && bookingId) {
+    if (!parsed.success) {
+      setReserva({ errors: parsed.error.flatten().fieldErrors });
+      return;
+    }
+
+    if (requiresDeposit && (!receiptFile || receiptFile.size === 0)) {
+      setReserva({
+        message: "Debés adjuntar el comprobante del pago de la seña (PDF o imagen).",
+      });
+      return;
+    }
+
+    setPending(true);
+    try {
+      const result = await db.createPublicBooking({
+        slug: parsed.data.slug,
+        serviceId: parsed.data.serviceId,
+        staffId: parsed.data.staffId,
+        startsAt: parsed.data.startsAt,
+        clientName: parsed.data.clientName,
+        clientPhone: parsed.data.clientPhone,
+        clientEmail: parsed.data.clientEmail,
+        notes: parsed.data.notes,
+        receipt: receiptFile ?? undefined,
+      });
+
+      if (!result.ok) {
+        setReserva({ message: result.message });
+        return;
+      }
+
+      setReserva({ ok: true, bookingId: result.bookingId, deposit: result.deposit });
+    } catch {
+      setReserva({ message: "No se pudo completar la reserva. Intentá de nuevo." });
+    } finally {
+      setPending(false);
+    }
+  }
+
+  const currentIndex = step === "done" ? 3 : STEPS.indexOf(step as Step);
+
+  if (reserva.ok && reserva.bookingId) {
     const staffName = staff.find((s) => s.id === staffId)?.name ?? "";
     const msg = [
       `¡Turno reservado en ${tenant.name}!`,
       `${service?.name ?? ""}${staffName ? ` con ${staffName}` : ""}`,
       `El ${selectedDate}${selectedTime ? ` a las ${formatTime(selectedTime)}` : ""}`,
-      `Referencia: ${bookingId.slice(0, 8)}`,
-      deposit ? `Seña pendiente: ${formatCurrency(deposit.amount)}` : "Sin seña.",
+      `Referencia: ${reserva.bookingId.slice(0, 8)}`,
+      reserva.deposit ? `Seña pendiente: ${formatCurrency(reserva.deposit.amount)}` : "Sin seña.",
     ].join("\n");
     const whatsappMsg = whatsappLinkWithText(tenant.phone, msg);
 
@@ -234,7 +301,6 @@ export default function BookingWizard({ tenant, services, staff, serviceStaff, h
                     style={{ backgroundColor: accent }}
                   >
                     {tenant.logo_url ? (
-                      // eslint-disable-next-line @next/next/no-img-element
                       <img src={tenant.logo_url} alt={tenant.name} className="w-full h-full object-contain" />
                     ) : (
                       <span>{tenant.logo_text || tenant.name.charAt(0)}</span>
@@ -246,7 +312,7 @@ export default function BookingWizard({ tenant, services, staff, serviceStaff, h
                   </div>
                   <div className="shrink-0">
                     <ShareButton
-                      path={`/${tenant.slug}`}
+                      path={`/b/${tenant.slug}`}
                       title={`Reservá tu turno en ${tenant.name}`}
                     />
                   </div>
@@ -424,18 +490,13 @@ export default function BookingWizard({ tenant, services, staff, serviceStaff, h
                     Completá tus datos para confirmar la reserva.
                   </p>
 
-                  {message && (
+                  {reserva.message && (
                     <p className="mb-4 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-700">
-                      {message}
+                      {reserva.message}
                     </p>
                   )}
 
-                  <form action={formAction} className="space-y-4">
-                    <input type="hidden" name="slug" value={tenant.slug} />
-                    <input type="hidden" name="serviceId" value={serviceId ?? ""} />
-                    <input type="hidden" name="staffId" value={staffId ?? ""} />
-                    <input type="hidden" name="startsAt" value={`${selectedDate}T${selectedTime}:00`} />
-
+                  <form onSubmit={handleSubmit} className="space-y-4">
                     <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
                       <div className="flex items-baseline justify-between gap-2">
                         <p className="font-semibold text-slate-900">{service?.name}</p>
@@ -459,7 +520,7 @@ export default function BookingWizard({ tenant, services, staff, serviceStaff, h
                     </div>
 
                     <div className="space-y-4">
-                      <Field label="Nombre" name="clientName" error={errors?.clientName}>
+                      <Field label="Nombre" name="clientName" error={reserva.errors?.clientName}>
                         <input
                           id="clientName"
                           type="text"
@@ -469,7 +530,7 @@ export default function BookingWizard({ tenant, services, staff, serviceStaff, h
                           placeholder="Tu nombre y apellido"
                         />
                       </Field>
-                      <Field label="Teléfono (WhatsApp)" name="clientPhone" error={errors?.clientPhone}>
+                      <Field label="Teléfono (WhatsApp)" name="clientPhone" error={reserva.errors?.clientPhone}>
                         <input
                           id="clientPhone"
                           type="tel"
@@ -479,7 +540,7 @@ export default function BookingWizard({ tenant, services, staff, serviceStaff, h
                           placeholder="11 2345 6789"
                         />
                       </Field>
-                      <Field label="Email" name="clientEmail" error={errors?.clientEmail}>
+                      <Field label="Email" name="clientEmail" error={reserva.errors?.clientEmail}>
                         <input
                           id="clientEmail"
                           type="email"
@@ -588,22 +649,19 @@ export default function BookingWizard({ tenant, services, staff, serviceStaff, h
                           </p>
                           <div className="mt-3">
                             <input
-                              type="hidden"
-                              name="depositConfirmed"
-                              value={receiptName ? "on" : ""}
-                            />
-                            <input
                               type="file"
                               name="receipt"
                               accept="image/png,image/jpeg,image/webp,application/pdf"
                               onChange={(e) => {
                                 const file = e.target.files?.[0];
                                 if (!file) {
+                                  setReceiptFile(null);
                                   setReceiptName("");
                                   setReceiptError("");
                                   return;
                                 }
                                 if (!/^(image\/(png|jpeg|jpg|webp)|application\/pdf)$/.test(file.type)) {
+                                  setReceiptFile(null);
                                   setReceiptName("");
                                   setReceiptError(
                                     "El archivo debe ser un PDF o una imagen (PNG, JPG, WEBP).",
@@ -611,11 +669,13 @@ export default function BookingWizard({ tenant, services, staff, serviceStaff, h
                                   return;
                                 }
                                 if (file.size > 5 * 1024 * 1024) {
+                                  setReceiptFile(null);
                                   setReceiptName("");
                                   setReceiptError("El archivo no puede superar los 5MB.");
                                   return;
                                 }
                                 setReceiptError("");
+                                setReceiptFile(file);
                                 setReceiptName(file.name);
                               }}
                               className="block w-full cursor-pointer rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 file:mr-3 file:rounded-lg file:border-0 file:bg-indigo-50 file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-indigo-700"

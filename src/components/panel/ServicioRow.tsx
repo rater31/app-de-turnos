@@ -1,8 +1,6 @@
-"use client";
-
-import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
-import { eliminarServicio, toggleServicio } from "@/app/actions/panel";
+import { useState } from "react";
+import { db } from "@/lib/db/api";
+import { useAuth } from "@/lib/auth";
 import ServicioForm, { type EditableService } from "@/components/panel/ServicioForm";
 import type { StaffMember } from "@/lib/types";
 import { formatCurrency } from "@/lib/utils";
@@ -15,14 +13,39 @@ export default function ServicioRow({
   servicio,
   staff,
   isPro,
+  onChanged,
 }: {
   servicio: Row;
   staff: StaffMember[];
   isPro: boolean;
+  onChanged?: () => void;
 }) {
-  const router = useRouter();
-  const [pending, startTransition] = useTransition();
+  const { tenant } = useAuth();
+  const [pending, setPending] = useState(false);
   const [editing, setEditing] = useState(false);
+
+  async function toggle() {
+    if (!tenant) return;
+    setPending(true);
+    try {
+      await db.setServiceActive(tenant.id, servicio.id, !servicio.active);
+      onChanged?.();
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function remove() {
+    if (!confirm(`¿Eliminar "${servicio.name}"?`)) return;
+    if (!tenant) return;
+    setPending(true);
+    try {
+      await db.deleteService(tenant.id, servicio.id);
+      onChanged?.();
+    } finally {
+      setPending(false);
+    }
+  }
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-4">
@@ -55,12 +78,7 @@ export default function ServicioRow({
           <button
             type="button"
             disabled={pending}
-            onClick={() => {
-              startTransition(async () => {
-                await toggleServicio(servicio.id, !servicio.active);
-                router.refresh();
-              });
-            }}
+            onClick={() => void toggle()}
             className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-slate-400 disabled:opacity-50"
           >
             {servicio.active ? "Desactivar" : "Activar"}
@@ -76,13 +94,7 @@ export default function ServicioRow({
           <button
             type="button"
             disabled={pending}
-            onClick={() => {
-              if (!confirm(`¿Eliminar "${servicio.name}"?`)) return;
-              startTransition(async () => {
-                await eliminarServicio(servicio.id);
-                router.refresh();
-              });
-            }}
+            onClick={() => void remove()}
             className="rounded-lg border border-transparent px-3 py-1.5 text-xs font-medium text-red-500 transition hover:bg-red-50 disabled:opacity-50"
           >
             Eliminar
@@ -95,7 +107,10 @@ export default function ServicioRow({
             staff={staff}
             servicio={servicio}
             isPro={isPro}
-            onSuccess={() => setEditing(false)}
+            onSuccess={() => {
+              setEditing(false);
+              onChanged?.();
+            }}
           />
         </div>
       )}
