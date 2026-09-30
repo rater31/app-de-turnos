@@ -13,11 +13,11 @@ Todo lo de la seccion 1 estaba arreglado en codigo pero falta ejecutar o verific
     Ojo: .github/workflows/supabase-reminders.yml SOLO la invoca por HTTP, no la despliega.
     Necesita Supabase CLI + access token, o deploy manual.
 
-[ ] Correr supabase/cleanup_pruebas.sql
-    Borra las 4 reservas que quedaron de las pruebas de booking, mas sus clientes y
-    recordatorios. Tiene candado: si no encuentra exactamente 4 reservas "pending" del
-    tenant "landing" creadas en las ultimas 12 horas, aborta sin borrar nada.
-    Pegar en Supabase > SQL Editor > New query > Run.
+[x] ~~Correr supabase/cleanup_pruebas.sql~~ — HECHO 2026-09-30
+    Borro las 4 reservas de prueba del 30-sep, sus clientes y recordatorios.
+    Quedo preservado a proposito: el turno del 8-sep de "fede hidalgo" (fuera de
+    la ventana de 12 h del script) y los clientes con seña real pagada.
+    Tenant "landing" limpio de pruebas.
 
 
 == 2. Sin verificar ==
@@ -55,13 +55,20 @@ Todo lo de la seccion 1 estaba arreglado en codigo pero falta ejecutar o verific
 
 == 4. Decisiones y limpieza ==
 
-[ ] Decidir que hacer con los tenants de prueba
+[ ] Revisar que tenants son reales y cuales borrar
     Hay 4 en produccion, los 4 con timezone America/Argentina/Buenos_Aires:
       peluqueria     pro    active
       landing        pro    active
       masajes        pro    active
       nuevo-negra-404 gratis active
-    Los tres "pro" son de prueba. Borrarlos o dejarlos?
+    OJO: "landing" NO es un tenant de prueba. Tiene data real de clientes:
+    un turno del 8-sep para "fede hidalgo" y una seña de $5000 pagada el 6-sep
+    a nombre de "Micaela Ramos". No borrar. Faltaria revisar peluqueria y
+    masajes antes de asumir que son de prueba.
+
+    Aparte: hay 2 pagos con booking_id = null (5000, paid, 6-sep). No son basura
+    ni un bug: payments.booking_id es nullable con ON DELETE SET NULL, asi que
+    quedan como registro contable cuando el turno se borra. Dejarlos.
 
 [ ] Probar el deploy a GitHub Pages por primera vez
     deploy.yml recien agregado con validacion de secrets. Nunca corrio un deploy
