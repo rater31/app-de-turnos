@@ -9,8 +9,13 @@
 --   5) RLS adicionales de escritura para client-side (-- REACT-MIGRATION)
 --   6) Storage: buckets logos/comprobantes + policies
 --   7) Trigger de perfil automático al crear un usuario de auth
+--   8) prevent_overlap corregido (fix: confirmar turno fallaba siempre)
+--   9) timezone en tenants (fix: recordatorios con hora local, no UTC)
 --
 -- Ejecutar DESPUÉS de supabase/schema.sql. Re-ejecutable (idempotente).
+-- Los bloques 8 y 9 son correcciones sobre schema.sql y sobre el bloque 3
+-- (onboard_tenant ya no inserta trial_ends_at), pensados para correrlos sobre
+-- una base ya migrada sin volver a ejecutar todo el archivo.
 -- Todos los comentarios están en español. Bloques separados con -- #####
 -- ============================================================================
 
@@ -425,9 +430,16 @@ begin
 
   -- Crea el tenant. Plan "gratis" sin prueba; plan "pro" con 30 días de prueba
   -- (igual que onboardTenant de api.ts).
-  insert into public.tenants (id, name, slug, plan, status, primary_color, email)
+  -- trial_ends_at es obligatorio para el plan pro: tenantAccess (api.ts) y el
+  -- chequeo de acceso de este mismo RPC solo dan acceso si la suscripción está
+  -- 'active' O hay trial_ends_at futuro. Sin esta columna, un alta con plan pro
+  -- nacía 'blocked' y el negocio rebotaba a /abonar al primer login.
+  insert into public.tenants (
+    id, name, slug, plan, status, primary_color, email, trial_ends_at
+  )
   values (
-    v_tenant_id, btrim(p_tenant_name), v_slug, v_plan, 'active', '#0f172a', v_email
+    v_tenant_id, btrim(p_tenant_name), v_slug, v_plan, 'active', '#0f172a', v_email,
+    case when v_plan = 'pro' then now() + interval '30 days' else null end
   );
 
   -- Perfil owner (el trigger handle_new_auth_user ya creó uno "pelado" al
@@ -833,3 +845,56 @@ begin
   on conflict do nothing;
   return new;
 end $$;
+
+-- ############################################################################
+-- 8. Fix prevent_overlap (confirmar/completar un turno fallaba siempre)
+-- ############################################################################
+-- schema.sql define el trigger sobre `update of ... status`, pero la función no
+-- excluía la fila que se está actualizando: al pasar pending -> confirmed, la
+-- fila en la tabla todavía tenía status 'pending' y se solapaba consigo misma,
+-- así que el trigger levantaba excepción en el 100% de los casos (cancelar sí
+-- pasaba, porque el WHEN excluye 'cancelled').
+-- Acá se redefine con `b.id <> new.id`. Es un `create or replace`, así que
+-- alcanza con correr este bloque sobre la base ya migrada.
+create or replace function public.prevent_overlap()
+returns trigger
+language plpgsql
+as $$
+begin
+  if exists (
+    select 1
+    from public.bookings b
+    where b.id <> new.id
+      and b.tenant_id = new.tenant_id
+      and b.staff_id = new.staff_id
+      and b.status in ('pending', 'confirmed', 'completed')
+      and b.starts_at < new.ends_at
+      and b.ends_at > new.starts_at
+  ) then
+    raise exception 'El profesional ya tiene un turno en ese rango horario';
+  end if;
+  return new;
+end $$;
+
+-- ############################################################################
+-- 9. timezone en tenants (para los recordatorios con hora local correcta)
+-- ############################################################################
+-- bookings.starts_at y reminders.scheduled_for guardan el wall-clock del
+-- negocio en un timestamp naive (ver la nota de convención al inicio del bloque
+-- 1). La Edge Function de reminders compara esos strings contra "ahora", y si
+-- lo hace en UTC queda desfasado el offset del negocio: en Argentina (UTC-3)
+-- los turnos de la tarde se marcan 'cancelled' sin llegar a enviarse.
+-- Guardar la zona horaria permite que la función traduzca cada instante a la
+-- hora local correcta del negocio. El default cubre los tenants existentes y
+-- los nuevos; se puede cambiar por negocio (o dejar otro default de la app con
+-- el secret DEFAULT_TENANT_TIMEZONE de la Edge Function).
+alter table public.tenants
+  add column if not exists timezone text not null default 'America/Argentina/Buenos_Aires';
+
+comment on column public.tenants.timezone is
+  'Zona horaria IANA del negocio. bookings/reminders guardan wall-clock local sin zona; la Edge Function de reminders la usa para comparar contra "ahora" en hora local.';
+
+-- Backfill defensivo: si la columna existía pero quedó nula en alguna fila.
+update public.tenants
+set timezone = 'America/Argentina/Buenos_Aires'
+where timezone is null or btrim(timezone) = '';

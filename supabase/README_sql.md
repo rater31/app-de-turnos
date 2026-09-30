@@ -24,6 +24,7 @@ el cliente con la anon key.
 | `CRON_SECRET` | Autentica la llamada del cron contra la Edge Function (header `Authorization: Bearer ...`). Debe ser el mismo valor que se escribe en `cron_reminders.sql`. |
 | `RESEND_API_KEY` | Envío de emails de recordatorio (Resend). |
 | `EMAIL_FROM` | *(opcional)* Remitente, por defecto `TurnoFácil <onboarding@resend.dev>`. |
+| `DEFAULT_TENANT_TIMEZONE` | *(opcional)* Zona IANA de fallback para tenants sin `timezone`, por defecto `America/Argentina/Buenos_Aires`. |
 | `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` | Se inyectan automáticamente en Edge Functions (no hace falta setearlas); la función las lee con `Deno.env`. |
 
 **Sugerencia para generar `CRON_SECRET`**:
@@ -45,9 +46,11 @@ Con `@supabase/supabase-js` (cliente básico, anon key, sin service role):
 
 - **Registro de negocio:** `rpc('onboard_tenant', {...})` → crea auth user + tenant
   + perfil owner + suscripción free + horarios default. Errores en español (`P0001`).
-- **Página pública de reservas:** `rpc('booked_slots', { p_tenant_id, p_date, p_service_id, p_staff_id })`
+- **Página pública de reservas:** `rpc('booked_slots', { p_tenant, p_staff, p_date })`
   para disponibilidad; `select` directo sobre `tenants`, `services`,
   `staff_members`, `service_staff`, `business_hours` (RLS ya permite lectura pública).
+  Ese es el overload de 3 args de `schema.sql`; el de 4 args de
+  `migration_react.sql` (que suma `p_service_id`) quedó sin usar.
 - **Alta de turno público:** `rpc('create_public_booking', {...})` con `p_client`
   como jsonb `{name, phone, email}`. Convención de horarios: enviar `p_starts_at`
   con la hora local del negocio marcada como UTC (sufijo `Z`), ej. `2026-09-15T14:30:00Z`.
@@ -68,3 +71,7 @@ Con `@supabase/supabase-js` (cliente básico, anon key, sin service role):
 - El turno con email en plan Pro crea una fila en `reminders` (24 h antes).
 - `cron_reminders.sql` corre cada 15 min y dispara la Edge Function `reminders`,
   que envía el correo **cuando faltan <2 h** para el turno y marca la fila `sent`.
+- `bookings.starts_at` y `reminders.scheduled_for` guardan el **wall-clock local
+  del negocio** en un `timestamp` naive. Para no comparar contra UTC (y perder los
+  turnos de la tarde), la función usa `tenants.timezone` (columna IANA, default
+  `America/Argentina/Buenos_Aires`) para calcular la ventana de envío.

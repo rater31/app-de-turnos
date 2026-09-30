@@ -39,6 +39,10 @@ export default function AbonarForm(props: AbonarFormProps) {
   const [state, setState] = useState<SubmitPlanPaymentState>({});
   const [pending, setPending] = useState(false);
 
+  // Se deriva de los datos que llegan, no de una constante importada, para que
+  // el aviso funcione igual si el CBU pasa a venir de la API.
+  const isPlaceholder = (props.bank.alias_cbu ?? "").toLowerCase().includes("pendiente");
+
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setState({});
@@ -62,7 +66,6 @@ export default function AbonarForm(props: AbonarFormProps) {
     try {
       const result = await db.createSubscriptionPayment({
         slug: parsed.data.slug,
-        amount: 8000,
         receipt: parsed.data.receipt,
       });
 
@@ -124,6 +127,14 @@ export default function AbonarForm(props: AbonarFormProps) {
         ) : (
           <p className="mt-4 rounded-2xl bg-amber-50 p-4 text-sm text-amber-700">
             Los datos de transferencia aún no están configurados. Contactá al administrador.
+          </p>
+        )}
+
+        {isPlaceholder && (
+          <p className="mt-3 rounded-2xl bg-red-50 p-4 text-sm text-red-700">
+            <strong className="font-semibold">Configuración pendiente.</strong> Estos datos de
+            transferencia son de relleno: todavía no se puede cobrar de verdad. El administrador
+            tiene que cargarlos en <code className="font-mono text-xs">src/lib/plataforma.ts</code>.
           </p>
         )}
 

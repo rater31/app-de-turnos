@@ -1,6 +1,6 @@
 import { lazy, Suspense } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
-import { RequireSuperAdmin, RequireTenantAccess } from "@/lib/guards";
+import { RequireAuth, RequireSuperAdmin, RequireTenantAccess } from "@/lib/guards";
 
 const HomePage = lazy(() => import("@/pages/HomePage"));
 const BookingPage = lazy(() => import("@/pages/BookingPage"));
@@ -43,7 +43,14 @@ export function App() {
           <Route path="/b/:slug" element={<BookingPage />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/registro" element={<RegistroPage />} />
-          <Route path="/abonar/:slug" element={<AbonarPage />} />
+          <Route
+            path="/abonar/:slug"
+            element={
+              <RequireAuth>
+                <AbonarPage />
+              </RequireAuth>
+            }
+          />
           <Route
             path="/panel/*"
             element={

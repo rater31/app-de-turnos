@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Navigate } from "react-router-dom";
+import { Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/lib/auth";
 
 function LoadingSpinner() {
@@ -12,8 +12,11 @@ function LoadingSpinner() {
 
 export function RequireAuth({ children }: { children: ReactNode }) {
   const { loading, user } = useAuth();
+  const { pathname } = useLocation();
   if (loading) return <LoadingSpinner />;
-  if (!user) return <Navigate to="/login" replace />;
+  // El destino va en la query para que al loguearse el usuario vuelva a donde
+  // estaba en vez de tener que volver a buscar el link (p.ej. "Ir a pagar").
+  if (!user) return <Navigate to={`/login?next=${encodeURIComponent(pathname)}`} replace />;
   return <>{children}</>;
 }
 

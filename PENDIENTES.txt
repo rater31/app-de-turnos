@@ -1,0 +1,72 @@
+PENDIENTES — app-de-turnos
+Actualizado: 2026-09-30
+Estado: la migracion SQL ya esta aplicada en produccion (https://pdbapryhmiaohdtwqatd.supabase.co).
+Todo lo de la seccion 1 estaba arreglado en codigo pero falta ejecutar o verificar.
+
+
+== 1. URGENTE: sigue roto en produccion ==
+
+[ ] Desplegar la Edge Function "reminders"
+    El fix de hora local por tenant esta escrito en supabase/functions/reminders/index.ts
+    pero NO esta desplegado. pg_cron la invoca cada 15 min (ver supabase/cron_reminders.sql),
+    asi que la version vieja sigue mandando los recordatorios a la hora de UTC/Buzz.
+    Ojo: .github/workflows/supabase-reminders.yml SOLO la invoca por HTTP, no la despliega.
+    Necesita Supabase CLI + access token, o deploy manual.
+
+[ ] Correr supabase/cleanup_pruebas.sql
+    Borra las 4 reservas que quedaron de las pruebas de booking, mas sus clientes y
+    recordatorios. Tiene candado: si no encuentra exactamente 4 reservas "pending" del
+    tenant "landing" creadas en las ultimas 12 horas, aborta sin borrar nada.
+    Pegar en Supabase > SQL Editor > New query > Run.
+
+
+== 2. Sin verificar ==
+
+[ ] prevent_overlap en UPDATE (reprogramar un turno)
+    El fix "b.id <> new.id" esta aplicado y se verifico por la via del insert publico,
+    pero nunca se probo el UPDATE de starts_at/ends_at de punta a punta porque no habia
+    sesion owner. Probar desde el panel: crear un turno, moverlo sobre otro existente
+    y confirmar que lo rechaza; despues confirmar que uno mismo se puede mover.
+
+
+== 3. Deuda tecnica ==
+
+[ ] Comprobantes expiran en 1 ano
+    subscription_payments.receipt_url guarda una signed URL de 365 dias
+    (src/lib/db/api.ts:127 -> 60 * 60 * 24 * 365). Pasado el año el admin no puede
+    ver el comprobante. Guardar solo el path y firmar la URL al leerla.
+
+[ ] MercadoPago no esta integrado
+    "mercadopago": "^3.6.0" esta en dependencies pero no se importa en ningun lado.
+    El cobro es transferencia manual y un humano valida desde /admin/pagos.
+    Cuando se integre (Checkout Pro o Planes), src/lib/plataforma.ts desaparece:
+    los datos pasan a salir de la API.
+
+[ ] Prop muerta: subscriptionStatus
+    AbonarPage.tsx:72 se la pasa a AbonarForm pero el form no la usa
+    (declarada en AbonarForm.tsx:13). Sacarla o darle uso.
+
+[ ] Datos bancarios hardcodeados y publicos
+    Viven en src/lib/plataforma.ts y viajan en el bundle JS: cualquiera que abra
+    /abonar los ve. Es inherente al flujo de transferencia manual (el pagador los
+    necesita para transferirse), pero implica que si cambia la cuenta hay que
+    editar el archivo a mano y redeployar.
+
+
+== 4. Decisiones y limpieza ==
+
+[ ] Decidir que hacer con los tenants de prueba
+    Hay 4 en produccion, los 4 con timezone America/Argentina/Buenos_Aires:
+      peluqueria     pro    active
+      landing        pro    active
+      masajes        pro    active
+      nuevo-negra-404 gratis active
+    Los tres "pro" son de prueba. Borrarlos o dejarlos?
+
+[ ] Probar el deploy a GitHub Pages por primera vez
+    deploy.yml recien agregado con validacion de secrets. Nunca corrio un deploy
+    real de la version Vite. La primera vez, mirar que no falle.
+
+[ ] Probar /registro de punta a punta
+    No se probo el alta de un negocio desde la UI. Ojo: onboard_tenant crea un
+    tenant nuevo, asi que ensucia la base antes de hacerlo.

@@ -1,5 +1,6 @@
 import { supabaseClient } from "@/lib/supabase/client";
 import { slugify } from "@/lib/utils";
+import { PLAN_BANK, PLAN_PRICE } from "@/lib/plataforma";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type {
   BookingRow,
@@ -788,7 +789,6 @@ export type SubscriptionPaymentRow = {
 
 export async function createSubscriptionPayment(input: {
   slug: string;
-  amount: number;
   periodStart?: string;
   periodEnd?: string;
   receipt: File;
@@ -813,16 +813,27 @@ export async function createSubscriptionPayment(input: {
     return { ok: false, message: "No se pudo guardar el comprobante. Intentá de nuevo." };
   }
 
+  // El monto sale de la configuración de la plataforma, no de lo que mande el
+  // navegador: antes el form enviaba `amount` y se guardaba tal cual.
   const { error } = await supabaseClient.from("subscription_payments").insert({
     tenant_id: tenant.id,
     subscription_id: sub?.id ?? null,
-    amount: input.amount,
+    amount: PLAN_PRICE,
     status: "pending",
     receipt_url: receiptUrl,
     period_start: input.periodStart ?? null,
     period_end: input.periodEnd ?? null,
   });
   if (error) {
+    // La RLS de subscription_payments es tenant-scoped: si llegamos hasta acá
+    // con este error es que la sesión no es del dueño de este negocio.
+    const isRls = error.code === "42501" || /row-level security/i.test(error.message ?? "");
+    if (isRls) {
+      return {
+        ok: false,
+        message: "Entrá con la cuenta del dueño del negocio para registrar el pago.",
+      };
+    }
     return { ok: false, message: "No se pudo registrar el pago. Contactá al administrador." };
   }
 
@@ -1168,45 +1179,14 @@ export async function getPlanPaymentData(slug: string): Promise<PlanPaymentData 
 
   const sub = await getSubscription(tenant.id);
 
-  // Los perfiles de superadmin solo son legibles por un superadmin (RLS). Con
-  // anon key el banco queda null y el form avisa ("Contactá al administrador").
-  let bank = {
-    alias_cbu: null as string | null,
-    banco: null as string | null,
-    titular: null as string | null,
-  };
-  try {
-    const { data: superAdmins } = await supabaseClient
-      .from("profiles")
-      .select("tenant_id")
-      .eq("role", "superadmin")
-      .limit(1);
-    if (superAdmins && superAdmins[0]?.tenant_id) {
-      const { data: st } = await supabaseClient
-        .from("tenants")
-        .select("alias_cbu, banco, titular")
-        .eq("id", superAdmins[0].tenant_id)
-        .maybeSingle();
-      if (st) {
-        bank = {
-          alias_cbu: st.alias_cbu ?? null,
-          banco: st.banco ?? null,
-          titular: st.titular ?? null,
-        };
-      }
-    }
-  } catch {
-    // anon key sin policies de perfiles -> banco null.
-  }
-
   return {
     tenantName: tenant.name,
     tenantSlug: tenant.slug,
     plan: sub?.plan ?? tenant.plan ?? "pro",
     subscriptionStatus: sub?.status ?? "trial",
     currentPeriodEnd: sub?.current_period_end ?? null,
-    amount: 8000,
-    bank,
+    amount: PLAN_PRICE,
+    bank: PLAN_BANK,
   };
 }
 

@@ -11,7 +11,10 @@ npm ci
 npm run dev          # Vite dev server en http://localhost:3000
 ```
 
-Variables de entorno: copiar `.env.example` → `.env.local` y completar (solo hay prefijos `VITE_*`, nunca secrets).
+Variables de entorno: copiar `.env.example` → `.env.local` y completar. La SPA solo
+lee prefijos `VITE_*` (la anon key de Supabase es pública por diseño; la RLS protege
+los datos). Si el build corre sin ellas, la app no arranca y muestra qué falta
+(`src/components/ConfigFaltante.tsx`) en vez de una pantalla en blanco.
 
 ## Build
 
@@ -24,8 +27,22 @@ Genera `out/` (ver `vite.config.ts`): `tsc --noEmit` + `vite build` + `scripts/p
 ## Deploy (GitHub Pages)
 
 - Workflow: `.github/workflows/deploy.yml` (push a `main` o `workflow_dispatch`).
-- Flujo: `npm ci` → `npm run build` → `actions/configure-pages` → artifact `out/` → `actions/deploy-pages` (environment `github-pages`).
+- Flujo: `npm ci` → verificar secrets → `npm run build` → `actions/configure-pages` → artifact `out/` → `actions/deploy-pages` (environment `github-pages`).
 - Site: `https://<user>.github.io/app-de-turnos/`. Si se usa dominio custom, cambiar `base` en `vite.config.ts` (o al artifact del workflow si cambia el path).
+
+**Variables en GitHub → Settings → Secrets and variables → Actions.** Vite las
+incrusta en el bundle durante el build, así que si faltan hay que re-correr el
+workflow. Las dos obligatorias van como **secrets** (el paso "Verificar
+configuración" corta el deploy si no están), el resto como **variables**
+(opcionales):
+
+| Nombre | Tipo | Uso |
+| --- | --- | --- |
+| `VITE_SUPABASE_URL` | secret | Obligatoria. URL del proyecto. |
+| `VITE_SUPABASE_ANON_KEY` | secret | Obligatoria. Anon key del proyecto. |
+| `VITE_APP_URL` | variable | *(opcional)* URL pública de la app, para los links de reserva. |
+| `VITE_SUPPORT_WHATSAPP` | variable | *(opcional)* WhatsApp de soporte. |
+| `VITE_SUPPORT_EMAIL` | variable | *(opcional)* Email de soporte. |
 
 ## Recordatorios
 

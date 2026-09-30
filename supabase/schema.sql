@@ -164,7 +164,11 @@ create table if not exists public.bookings (
   updated_at timestamptz not null default now()
 );
 
--- Valida que no exista solapamiento de turnos por profesional
+-- Valida que no exista solapamiento de turnos por profesional.
+-- El `b.id <> new.id` es obligatorio: el trigger también escucha `update of
+-- status`, así que al confirmar/completar un turno la fila sigue solapándose
+-- consigo misma en la tabla y sin esta exclusión la validación revienta en el
+-- 100% de los casos.
 create or replace function public.prevent_overlap()
 returns trigger
 language plpgsql
@@ -173,7 +177,8 @@ begin
   if exists (
     select 1
     from public.bookings b
-    where b.tenant_id = new.tenant_id
+    where b.id <> new.id
+      and b.tenant_id = new.tenant_id
       and b.staff_id = new.staff_id
       and b.status in ('pending', 'confirmed', 'completed')
       and b.starts_at < new.ends_at

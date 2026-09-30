@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { z } from "zod";
 import { db } from "@/lib/db/api";
 import { supabaseClient } from "@/lib/supabase/client";
@@ -17,6 +17,7 @@ export default function LoginForm() {
   const [state, setState] = useState<LoginState>({});
   const [pending, setPending] = useState(false);
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -54,6 +55,15 @@ export default function LoginForm() {
           return;
         }
         setState({ message: "Tu negocio está deshabilitado. Contactá al administrador." });
+        return;
+      }
+
+      // Destino guardado por los guards (ej. ?next=/abonar/barberia). Solo se
+      // aceptan rutas internas: sin `//` ni esquemas, para no convertir el
+      // login en un open redirect.
+      const next = searchParams.get("next");
+      if (next && next.startsWith("/") && !next.startsWith("//")) {
+        navigate(next);
         return;
       }
 

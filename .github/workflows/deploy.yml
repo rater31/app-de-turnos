@@ -36,7 +36,30 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Vite incrusta las VITE_* en el bundle en tiempo de build: si faltan, la
+      # app se publica sin conexión a Supabase (ver ConfigFaltante.tsx). Cortar
+      # acá es preferible a publicar un sitio roto que se ve bien en el log.
+      - name: Verificar configuración
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+        run: |
+          faltan=""
+          [ -n "$VITE_SUPABASE_URL" ] || faltan="$faltan VITE_SUPABASE_URL"
+          [ -n "$VITE_SUPABASE_ANON_KEY" ] || faltan="$faltan VITE_SUPABASE_ANON_KEY"
+          if [ -n "$faltan" ]; then
+            echo "::error::Faltan los secrets:$faltan"
+            echo "Crealos en GitHub -> Settings -> Secrets and variables -> Actions."
+            exit 1
+          fi
+
       - name: Build
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_APP_URL: ${{ vars.VITE_APP_URL }}
+          VITE_SUPPORT_WHATSAPP: ${{ vars.VITE_SUPPORT_WHATSAPP }}
+          VITE_SUPPORT_EMAIL: ${{ vars.VITE_SUPPORT_EMAIL }}
         run: npm run build
 
       - name: Setup Pages
