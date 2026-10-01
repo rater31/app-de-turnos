@@ -4,4 +4,5 @@
 - Antes de cambiar el esquema o políticas de Supabase, revisar `supabase/README_sql.md` y mantener alineados `schema.sql` y `migration_react.sql`.
 - Nunca incluir claves `service_role` ni otros secretos en variables `VITE_*`; todo lo que empieza por `VITE_` queda público en el bundle.
 - Después de modificar el frontend, ejecutar `npm run lint` y `npm run build`.
-- No desplegar cambios a GitHub Pages, Supabase o servicios externos sin autorización explícita.
+- No desplegar cambios a Netlify, Supabase o servicios externos sin autorización explícita.
+- El deploy es Netlify con build nativo (ver `netlify.toml`); no hay workflow de GitHub Pages. El fallback de rutas de SPA vive en `public/_redirects`.

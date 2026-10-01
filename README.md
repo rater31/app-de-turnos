@@ -1,6 +1,6 @@
 # turnosFácil — app de turnos
 
-SPA de gestión de turnos **Vite + React + TypeScript + Tailwind CSS 4**, desplegada en **GitHub Pages** (base `/app-de-turnos/`). Backend: Supabase.
+SPA de gestión de turnos **Vite + React + TypeScript + Tailwind CSS 4**, desplegada en **Netlify**. Backend: Supabase.
 
 > Migrado desde Next.js App Router a SPA de cliente. No quedan rutas `/api` ni server code en el repo; las funciones serverless viven como Edge Functions de Supabase (`supabase/functions/`).
 
@@ -22,31 +22,37 @@ los datos). Si el build corre sin ellas, la app no arranca y muestra qué falta
 npm run build
 ```
 
-Genera `out/` (ver `vite.config.ts`): `tsc --noEmit` + `vite build` + `scripts/postbuild.mjs` (copia `out/index.html` → `out/404.html` para que GitHub Pages sirva los deep links).
+Genera `out/` (ver `vite.config.ts`): `tsc --noEmit` + `vite build`.
 
 Si cambian RPCs o políticas de Supabase, aplicá primero la versión actualizada de
 `supabase/migration_react.sql` y recién después desplegá el frontend. Ver el orden
 completo en [`supabase/README_sql.md`](supabase/README_sql.md).
 
-## Deploy (GitHub Pages)
+## Deploy (Netlify)
 
-- Workflow: `.github/workflows/deploy.yml` (push a `main` o `workflow_dispatch`).
-- Flujo: `npm ci` → verificar secrets → `npm run build` → `actions/configure-pages` → artifact `out/` → `actions/deploy-pages` (environment `github-pages`).
-- Site: `https://<user>.github.io/app-de-turnos/`. Si se usa dominio custom, cambiar `base` en `vite.config.ts` (o al artifact del workflow si cambia el path).
+Netlify buildea desde el repo: cada push a la rama configurada dispara
+`npm ci` → `npm run build` → publica `out/`. El build command, el publish dir y la
+versión de Node están en `netlify.toml`.
 
-**Variables en GitHub → Settings → Secrets and variables → Actions.** Vite las
-incrusta en el bundle durante el build, así que si faltan hay que re-correr el
-workflow. Las dos obligatorias van como **secrets** (el paso "Verificar
-configuración" corta el deploy si no están), el resto como **variables**
-(opcionales):
+El fallback de rutas de SPA (deep links como `/panel/ajustes` o `/masajes`) está en
+`public/_redirects`, que Vite copia a `out/_redirects`. Tiene que vivir en `public/`
+porque Netlify solo lo lee desde el directorio de publicación.
 
-| Nombre | Tipo | Uso |
-| --- | --- | --- |
-| `VITE_SUPABASE_URL` | secret | Obligatoria. URL del proyecto. |
-| `VITE_SUPABASE_ANON_KEY` | secret | Obligatoria. Anon key del proyecto. |
-| `VITE_APP_URL` | variable | *(opcional)* URL pública de la app, para los links de reserva. |
-| `VITE_SUPPORT_WHATSAPP` | variable | *(opcional)* WhatsApp de soporte. |
-| `VITE_SUPPORT_EMAIL` | variable | *(opcional)* Email de soporte. |
+**Variables en Netlify → Site configuration → Environment variables.** Vite las
+incrusta en el bundle durante el build, así que cambiarlas exige rebuild (Deploys →
+trigger deploy). Las dos obligatorias:
+
+| Nombre | Uso |
+| --- | --- |
+| `VITE_SUPABASE_URL` | Obligatoria. URL del proyecto. |
+| `VITE_SUPABASE_ANON_KEY` | Obligatoria. Anon key del proyecto. |
+| `VITE_APP_URL` | *(opcional)* URL pública de la app, para los links de reserva. |
+| `VITE_SUPPORT_WHATSAPP` | *(opcional)* WhatsApp de soporte. |
+| `VITE_SUPPORT_EMAIL` | *(opcional)* Email de soporte. |
+
+Ojo: a diferencia de GitHub Actions, un build sin esas variables **no falla** — se
+publica la app y muestra `ConfigFaltante` en vez de funcionar. Revisá el sitio
+después del primer deploy.
 
 ## Recordatorios
 

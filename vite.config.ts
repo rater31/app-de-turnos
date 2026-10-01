@@ -3,9 +3,11 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import path from 'node:path'
 
-// Si usás un dominio custom (no https://<user>.github.io/<repo>), cambiá `base` a "/".
-export default defineConfig(({ command }) => ({
-  base: command === 'serve' ? '/' : '/app-de-turnos/',
+// Netlify sirve el sitio desde la raiz del dominio, asi que `base` es siempre
+// "/". No cambiar a "/<repo>/" como en GitHub Pages: eso hornearia un path
+// inexistente en los assets y en el basename del BrowserRouter.
+export default defineConfig(() => ({
+  base: '/',
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: { '@': path.resolve(__dirname, './src') },

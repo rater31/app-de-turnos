@@ -1,0 +1,6 @@
+# SPA fallback for Netlify: any path that is not a real file is served
+# index.html so the BrowserRouter can resolve it client-side.
+#
+# This file must live in public/ (not at the repo root): Netlify only reads
+# _redirects from the publish directory, and Vite copies public/ -> out/.
+/*    /index.html   200

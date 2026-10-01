@@ -73,7 +73,7 @@ conversión del SaaS.
 | Señas actuales | Transferencia manual y revisión humana del comprobante |
 | Mercado Pago | No integrado todavía; marketplace/Checkout es una fase futura |
 | Email | Resend desde la Edge Function de recordatorios |
-| Deploy | GitHub Pages (SPA), Supabase (DB/Auth/Functions) |
+| Deploy | Netlify (SPA), Supabase (DB/Auth/Functions) |
 
 ## 5. Modelo de datos
 

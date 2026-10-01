@@ -30,8 +30,8 @@ export default function AjustesPage() {
   // blanco si alguna vez se alcanzaba.
   if (!tenant) return <LoadingSpinner />;
 
-  // Sin VITE_APP_URL cae a origin + BASE_URL: en GitHub Pages el base es
-  // /app-de-turnos/, y usar solo el origin perdiaba ese segmento.
+  // Sin VITE_APP_URL cae a origin + BASE_URL: sirve para el caso de un base
+  // distinto de "/", que no ocurre con Netlify pero no cuesta nada respetarlo.
   const base = (env.appUrl || `${window.location.origin}${import.meta.env.BASE_URL}`).replace(/\/$/, "");
   const publicUrl = `${base}/b/${tenant.slug}`;
 

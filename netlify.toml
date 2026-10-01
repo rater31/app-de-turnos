@@ -1,0 +1,15 @@
+# Netlify: build de la SPA Vite.
+#
+# El publish dir es out/ (vite.config.ts -> build.outDir), no dist/.
+# El fallback de rutas de SPA va en public/_redirects, que Vite copia a
+# out/_redirects y Netlify lee desde el directorio de publicacion.
+#
+# Vite incrusta las VITE_* en el bundle en tiempo de build: si faltan, la app se
+# publica sin conexion a Supabase (ver src/components/ConfigFaltante.tsx).
+# Configurarlas en Netlify -> Site settings -> Environment variables.
+[build]
+  command = "npm run build"
+  publish = "out"
+
+[build.environment]
+  NODE_VERSION = "22"
