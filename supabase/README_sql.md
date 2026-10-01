@@ -51,6 +51,11 @@ Con `@supabase/supabase-js` (cliente básico, anon key, sin service role):
 
 - **Registro de negocio:** `rpc('onboard_tenant', {...})` → crea auth user + tenant
   + perfil owner + suscripción free + horarios default. Errores en español (`P0001`).
+  **Slugs reservados:** `b`, `login`, `registro`, `abonar`, `panel` y `admin` no
+  pueden usarse como slug, porque la página pública es `/<slug>` y una ruta estática
+  homónima la taparía. El frontend les agrega sufijo al derivar el slug del nombre
+  (`src/lib/utils.ts` → `RESERVED_SLUGS`), el RPC lo rechaza y el CHECK
+  `tenants_slug_not_reserved` sobre `tenants.slug` lo impide a nivel de base.
 - **Página pública de reservas:** `rpc('public_tenant_access', { p_tenant_id })`
   calcula un estado público acotado sin revelar la tabla `subscriptions`; luego
   `rpc('booked_slots', { p_tenant, p_staff, p_date })`

@@ -417,6 +417,13 @@ begin
   if v_slug = '' then
     raise exception 'El nombre corto del negocio es obligatorio.' using errcode = 'P0001';
   end if;
+  -- El slug es la URL pública del negocio (/b/<slug> y /<slug>). Si coincide
+  -- con una ruta de la SPA, su página quedaría inalcanzable porque gana la ruta
+  -- estática. El frontend (src/lib/db/api.ts) ya le agrega sufijo al derivar el
+  -- slug del nombre; esto es la red de seguridad para llamadas directas al RPC.
+  if lower(btrim(v_slug)) in ('b', 'login', 'registro', 'abonar', 'panel', 'admin') then
+    raise exception 'Ese nombre corto está reservado. Elegí otro.' using errcode = 'P0001';
+  end if;
   if v_plan not in ('gratis', 'pro') then
     v_plan := 'gratis';
   end if;
@@ -934,6 +941,22 @@ comment on column public.tenants.timezone is
 update public.tenants
 set timezone = 'America/Argentina/Buenos_Aires'
 where timezone is null or btrim(timezone) = '';
+
+-- Slugs reservados por la SPA. El slug es la URL pública del negocio
+-- (/b/<slug> y /<slug>); si coincide con una ruta de la SPA su página queda
+-- tapada por la ruta estática. Misma lista que src/lib/utils.ts (RESERVED_SLUGS)
+-- y que el CHECK de schema.sql.
+--
+-- Verificar offenders antes de aplicar si la base ya tiene datos:
+--
+--   select id, name, slug from public.tenants
+--   where lower(btrim(slug)) in ('b','login','registro','abonar','panel','admin');
+alter table public.tenants drop constraint if exists tenants_slug_not_reserved;
+alter table public.tenants
+  add constraint tenants_slug_not_reserved check (
+    lower(btrim(slug)) not in ('b', 'login', 'registro', 'abonar', 'panel', 'admin')
+  ) not valid;
+alter table public.tenants validate constraint tenants_slug_not_reserved;
 
 -- ############################################################################
 -- 10. Acceso público mínimo y estado de plan sin exponer subscriptions

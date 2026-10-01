@@ -12,6 +12,23 @@ export function slugify(input: string): string {
     .slice(0, 60);
 }
 
+// Slugs que colisionan con rutas de la SPA. La página pública de un negocio es
+// /:slug, así que un tenant llamado "login" o "panel" deja su propia URL
+// inalcanzable (gana la ruta estática). La misma lista se aplica en el RPC
+// onboard_tenant y en el CHECK constraint de tenants.slug.
+export const RESERVED_SLUGS = new Set([
+  "b",
+  "login",
+  "registro",
+  "abonar",
+  "panel",
+  "admin",
+]);
+
+export function isReservedSlug(slug: string): boolean {
+  return RESERVED_SLUGS.has(slug.trim().toLowerCase());
+}
+
 export function formatDate(date: Date | string): string {
   const d = typeof date === "string" ? new Date(date) : date;
   return d.toLocaleDateString("es-AR", {

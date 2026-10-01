@@ -123,14 +123,14 @@ export default function PanelHomePage() {
           <h3 className="font-semibold text-slate-900">Todos los turnos</h3>
           <p className="text-xs text-slate-500">
             Recordá: tu página pública está en{" "}
-            <a
-              href={`/b/${tenant.slug}`}
+            <Link
+              to={`/b/${tenant.slug}`}
               target="_blank"
               rel="noopener noreferrer"
               className="font-medium text-indigo-600 hover:underline"
             >
               /b/{tenant.slug}
-            </a>
+            </Link>
           </p>
         </div>
         <div className="divide-y divide-slate-100">

@@ -1,5 +1,5 @@
 import { supabaseClient } from "@/lib/supabase/client";
-import { slugify } from "@/lib/utils";
+import { slugify, isReservedSlug } from "@/lib/utils";
 import { PLAN_BANK, PLAN_PRICE } from "@/lib/plataforma";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type {
@@ -247,7 +247,12 @@ export async function onboardTenant(input: {
 }): Promise<{ ok: true } | { ok: false; message: string }> {
   const selectedPlan = input.plan ?? "pro";
 
-  const baseSlug = slugify(input.businessName) || "negocio";
+  // El slug se deriva del nombre, así que un negocio llamado "Panel" o "Login"
+  // genera un slug reservado: su URL pública quedaría tapada por la ruta
+  // estática. En ese caso arrancamos directo con sufijo numérico.
+  const raw = slugify(input.businessName);
+  const reserved = raw === "" || isReservedSlug(raw);
+  const baseSlug = reserved ? `${raw || "negocio"}-2` : raw;
   let slug = baseSlug;
   let suffix = 2;
   while (true) {

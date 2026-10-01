@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, Outlet } from "react-router-dom";
 import PanelNav from "@/components/panel/PanelNav";
 import ShareButton from "@/components/ShareButton";
-import { RequireTenantAccess } from "@/lib/guards";
+import { RequireTenantAccess, LoadingSpinner } from "@/lib/guards";
 import { db, type TenantAccess } from "@/lib/db/api";
 import { useAuth } from "@/lib/auth";
 
@@ -22,7 +22,10 @@ export default function PanelLayout() {
     };
   }, [tenant]);
 
-  if (!tenant) return null;
+  // RequireTenantAccess (en App.tsx) ya redirige a /login si no hay tenant, así
+  // que esto no llega a verse. Antes devolvía null y dejaba una pantalla en
+  // blanco si alguna vez se alcanzaba.
+  if (!tenant) return <LoadingSpinner />;
   const effective: TenantAccess =
     access ?? (tenant.plan === "pro" ? "pro" : "gratis");
   const planLabel =
@@ -55,14 +58,14 @@ export default function PanelLayout() {
               <span className="rounded-full bg-slate-100 px-2.5 py-1 text-slate-600">
                 Plan: <span className="font-semibold capitalize">{planLabel}</span>
               </span>
-              <a
-                href={`/b/${tenant.slug}`}
+              <Link
+                to={`/b/${tenant.slug}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="hidden rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-indigo-700 transition hover:bg-indigo-100 sm:inline"
               >
                 {tenant.slug}.turnofacil.ar
-              </a>
+              </Link>
               <ShareButton
                 path={`/b/${tenant.slug}`}
                 title={`Reservá tu turno en ${tenant.name}`}

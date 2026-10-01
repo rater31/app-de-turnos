@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { NavLink, useNavigate } from "react-router-dom";
+import { NavLink, Link, useNavigate } from "react-router-dom";
 import { supabaseClient } from "@/lib/supabase/client";
 
 const LINKS = [
@@ -79,8 +79,8 @@ export default function PanelNav({
       </nav>
 
       <div className="border-t border-slate-100 px-3 py-4">
-        <a
-          href={`/b/${tenantSlug}`}
+        <Link
+          to={`/b/${tenantSlug}`}
           target="_blank"
           rel="noopener noreferrer"
           className="mb-2 flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-indigo-600 transition hover:bg-indigo-50"
@@ -91,7 +91,7 @@ export default function PanelNav({
             <path d="M12 11v6M9 14h6" />
           </svg>
           Ver mi página
-        </a>
+        </Link>
         <div className="flex items-center gap-3 rounded-lg px-3 py-2">
           <span className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-200 text-sm font-bold text-slate-700">
             {userName.charAt(0).toUpperCase()}

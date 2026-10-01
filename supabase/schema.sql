@@ -299,6 +299,23 @@ create index if not exists idx_clients_tenant on public.clients (tenant_id);
 alter table public.tenants add column if not exists logo_text text;
 create index if not exists idx_profiles_tenant on public.profiles (tenant_id);
 
+-- El slug es la URL pública del negocio: /b/<slug> y /<slug>. Un slug igual a
+-- una ruta de la SPA (login, panel, admin, ...) haría su página inalcanzable
+-- porque gana la ruta estática. Se reserva la lista completa.
+--
+-- NOT VALID primero para no romper la migración si una base existente ya tiene
+-- un slug en conflicto; el VALIDATE de abajo sí lo rechaza. Para ver los
+-- offenders antes de aplicar:
+--
+--   select id, name, slug from public.tenants
+--   where lower(btrim(slug)) in ('b','login','registro','abonar','panel','admin');
+alter table public.tenants drop constraint if exists tenants_slug_not_reserved;
+alter table public.tenants
+  add constraint tenants_slug_not_reserved check (
+    lower(btrim(slug)) not in ('b', 'login', 'registro', 'abonar', 'panel', 'admin')
+  ) not valid;
+alter table public.tenants validate constraint tenants_slug_not_reserved;
+
 -- ----------------------------------------------------------------------------
 -- TRIGGERS de updated_at
 -- ----------------------------------------------------------------------------

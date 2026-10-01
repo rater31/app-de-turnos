@@ -40,7 +40,10 @@ export function App() {
       >
         <Routes>
           <Route path="/" element={<HomePage />} />
+          {/* Alias sin prefijo: /masajes == /b/masajes. React Router rankea las
+              rutas por especificidad, asi que las estaticas de abajo ganan. */}
           <Route path="/b/:slug" element={<BookingPage />} />
+          <Route path="/:slug" element={<BookingPage />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/registro" element={<RegistroPage />} />
           <Route
