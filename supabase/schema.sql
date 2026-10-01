@@ -174,6 +174,12 @@ returns trigger
 language plpgsql
 as $$
 begin
+  -- Serializa las escrituras por tenant/profesional para que dos INSERT
+  -- concurrentes no pasen ambos el chequeo de solapamiento.
+  perform pg_advisory_xact_lock(
+    hashtextextended('turnos:booking:' || new.tenant_id::text || ':' || new.staff_id::text, 0)
+  );
+
   if exists (
     select 1
     from public.bookings b
@@ -339,7 +345,10 @@ create policy profiles_select_superadmin on public.profiles
 -- Tenants: lectura pública necesaria para la página de reservas; edición del dueño.
 drop policy if exists tenants_select_public on public.tenants;
 create policy tenants_select_public on public.tenants
-  for select using (true);
+  for select to anon, authenticated using (status = 'active');
+drop policy if exists tenants_select_own_react on public.tenants;
+create policy tenants_select_own_react on public.tenants
+  for select to authenticated using (id = public.current_tenant_id());
 drop policy if exists tenants_update_own on public.tenants;
 create policy tenants_update_own on public.tenants
   for update using (id = public.current_tenant_id()) with check (id = public.current_tenant_id());
@@ -350,7 +359,7 @@ create policy tenants_all_superadmin on public.tenants
 -- Servicios / profesionales / horarios: lectura pública (reservas), edición por tenant.
 do $$
 begin
-  execute 'create policy services_select_public on public.services for select using (true)';
+  execute 'create policy services_select_public on public.services for select to anon, authenticated using (active and exists (select 1 from public.tenants t where t.id = services.tenant_id and t.status = ''active''))';
   execute 'create policy services_write_tenant on public.services for all using (tenant_id = public.current_tenant_id()) with check (tenant_id = public.current_tenant_id())';
   execute 'create policy services_all_superadmin on public.services for all using (public.is_superadmin()) with check (public.is_superadmin())';
 exception when duplicate_object then null;
@@ -358,7 +367,7 @@ end $$;
 
 do $$
 begin
-  execute 'create policy staff_select_public on public.staff_members for select using (true)';
+  execute 'create policy staff_select_public on public.staff_members for select to anon, authenticated using (active and exists (select 1 from public.tenants t where t.id = staff_members.tenant_id and t.status = ''active''))';
   execute 'create policy staff_write_tenant on public.staff_members for all using (tenant_id = public.current_tenant_id()) with check (tenant_id = public.current_tenant_id())';
   execute 'create policy staff_all_superadmin on public.staff_members for all using (public.is_superadmin()) with check (public.is_superadmin())';
 exception when duplicate_object then null;
@@ -366,7 +375,7 @@ end $$;
 
 do $$
 begin
-  execute 'create policy hours_select_public on public.business_hours for select using (true)';
+  execute 'create policy hours_select_public on public.business_hours for select to anon, authenticated using (active and exists (select 1 from public.tenants t where t.id = business_hours.tenant_id and t.status = ''active''))';
   execute 'create policy hours_write_tenant on public.business_hours for all using (tenant_id = public.current_tenant_id()) with check (tenant_id = public.current_tenant_id())';
   execute 'create policy hours_all_superadmin on public.business_hours for all using (public.is_superadmin()) with check (public.is_superadmin())';
 exception when duplicate_object then null;
@@ -376,7 +385,16 @@ end $$;
 -- del servicio y del profesional.
 drop policy if exists service_staff_select_public on public.service_staff;
 create policy service_staff_select_public on public.service_staff
-  for select using (true);
+  for select to anon, authenticated using (
+    exists (
+      select 1
+      from public.services s
+      join public.staff_members sm on sm.id = service_staff.staff_id and sm.tenant_id = s.tenant_id
+      join public.tenants t on t.id = s.tenant_id
+      where s.id = service_staff.service_id
+        and s.active and sm.active and t.status = 'active'
+    )
+  );
 drop policy if exists service_staff_all on public.service_staff;
 create policy service_staff_all on public.service_staff
   for all using (

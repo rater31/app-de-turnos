@@ -24,6 +24,10 @@ npm run build
 
 Genera `out/` (ver `vite.config.ts`): `tsc --noEmit` + `vite build` + `scripts/postbuild.mjs` (copia `out/index.html` → `out/404.html` para que GitHub Pages sirva los deep links).
 
+Si cambian RPCs o políticas de Supabase, aplicá primero la versión actualizada de
+`supabase/migration_react.sql` y recién después desplegá el frontend. Ver el orden
+completo en [`supabase/README_sql.md`](supabase/README_sql.md).
+
 ## Deploy (GitHub Pages)
 
 - Workflow: `.github/workflows/deploy.yml` (push a `main` o `workflow_dispatch`).

@@ -1,9 +1,7 @@
-<!-- BEGIN:nextjs-agent-rules -->
+# Instrucciones del proyecto
 
-# This is NOT the Next.js you know
-
-This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
-
-This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
-
-<!-- END:nextjs-agent-rules -->
+- Este repositorio es una SPA de Vite + React + TypeScript; no es una aplicación Next.js.
+- Antes de cambiar el esquema o políticas de Supabase, revisar `supabase/README_sql.md` y mantener alineados `schema.sql` y `migration_react.sql`.
+- Nunca incluir claves `service_role` ni otros secretos en variables `VITE_*`; todo lo que empieza por `VITE_` queda público en el bundle.
+- Después de modificar el frontend, ejecutar `npm run lint` y `npm run build`.
+- No desplegar cambios a GitHub Pages, Supabase o servicios externos sin autorización explícita.

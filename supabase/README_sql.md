@@ -7,12 +7,17 @@ el cliente con la anon key.
 
 ## Orden de ejecución (en el Supabase SQL Editor)
 
-1. **`supabase/schema.sql`** — base (tablas + RLS existentes). No se toca.
+1. **`supabase/schema.sql`** — base (tablas, triggers y políticas RLS).
 2. **`supabase/migration_react.sql`** — agrega los RPCs `create_public_booking`,
-   `booked_slots`, `onboard_tenant`, `delete_user_data`, policies de escritura
-   client-side (`-- REACT-MIGRATION`), buckets storage y trigger de perfil.
+   `booked_slots`, `public_tenant_access`, `onboard_tenant`, `delete_user_data`,
+   policies de escritura client-side (`-- REACT-MIGRATION`), endurecimiento de
+   políticas/columnas públicas, límites del bucket y trigger de perfil.
 3. **`supabase/cron_reminders.sql`** — programa pg_cron (`*/15 * * * *`) que
    llama a la Edge Function `reminders` con `net.http_post`.
+
+En una base existente, ejecutar la versión actualizada de `migration_react.sql`
+antes de publicar el nuevo frontend: este llama al RPC `public_tenant_access` y
+usa enlaces firmados para los comprobantes. La migración es re-ejecutable.
 
 ## Secrets a configurar en Supabase
 
@@ -46,7 +51,9 @@ Con `@supabase/supabase-js` (cliente básico, anon key, sin service role):
 
 - **Registro de negocio:** `rpc('onboard_tenant', {...})` → crea auth user + tenant
   + perfil owner + suscripción free + horarios default. Errores en español (`P0001`).
-- **Página pública de reservas:** `rpc('booked_slots', { p_tenant, p_staff, p_date })`
+- **Página pública de reservas:** `rpc('public_tenant_access', { p_tenant_id })`
+  calcula un estado público acotado sin revelar la tabla `subscriptions`; luego
+  `rpc('booked_slots', { p_tenant, p_staff, p_date })`
   para disponibilidad; `select` directo sobre `tenants`, `services`,
   `staff_members`, `service_staff`, `business_hours` (RLS ya permite lectura pública).
   Ese es el overload de 3 args de `schema.sql`; el de 4 args de
@@ -73,5 +80,6 @@ Con `@supabase/supabase-js` (cliente básico, anon key, sin service role):
   que envía el correo **cuando faltan <2 h** para el turno y marca la fila `sent`.
 - `bookings.starts_at` y `reminders.scheduled_for` guardan el **wall-clock local
   del negocio** en un `timestamp` naive. Para no comparar contra UTC (y perder los
-  turnos de la tarde), la función usa `tenants.timezone` (columna IANA, default
-  `America/Argentina/Buenos_Aires`) para calcular la ventana de envío.
+  turnos cercanos), el RPC compara las reservas contra la hora local de
+  `tenants.timezone` (IANA; default `America/Argentina/Buenos_Aires`) y la Edge
+  Function usa esa zona para calcular la ventana de envío.

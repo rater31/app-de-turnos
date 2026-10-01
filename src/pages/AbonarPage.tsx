@@ -69,7 +69,6 @@ export default function AbonarPage() {
         tenantName={data.tenantName}
         tenantSlug={data.tenantSlug}
         plan={data.plan}
-        subscriptionStatus={data.subscriptionStatus}
         currentPeriodEnd={data.currentPeriodEnd}
         amount={data.amount}
         bank={data.bank}

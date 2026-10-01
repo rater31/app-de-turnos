@@ -65,16 +65,15 @@ conversión del SaaS.
 
 | Capa | Tecnología |
 |---|---|
-| Frontend + API | Next.js |
+| Frontend | SPA con Vite + React + TypeScript + Tailwind CSS 4 |
 | Base de datos | Supabase (PostgreSQL) |
-| Auth | Supabase Auth (owner/staff) |
-| Seguridad multi-tenant | RLS de Supabase |
-| Recordatorios | Edge Functions (Deno) + programación (pg_cron) |
-| Pagos (señas) | Mercado Pago (Checkout / Marketplace) |
-| Suscripción del SaaS | Mercado Pago (Planes) |
-| WhatsApp | WhatsApp Business API / Twilio |
-| Email | Resend / SendGrid |
-| Deploy | Vercel (front + API), Supabase (DB/Auth) |
+| Auth | Supabase Auth (owner/staff), desde el cliente |
+| Seguridad multi-tenant | RLS de Supabase + RPCs `SECURITY DEFINER` acotados |
+| Recordatorios | Edge Function (Deno) + pg_cron en Supabase |
+| Señas actuales | Transferencia manual y revisión humana del comprobante |
+| Mercado Pago | No integrado todavía; marketplace/Checkout es una fase futura |
+| Email | Resend desde la Edge Function de recordatorios |
+| Deploy | GitHub Pages (SPA), Supabase (DB/Auth/Functions) |
 
 ## 5. Modelo de datos
 
@@ -160,34 +159,29 @@ local/efectivo y no interviene MP.
 | **3. Recordatorios** | WhatsApp + email automáticos | Reduce el dolor #1: los no-shows |
 | **4. Marketplace** | Señas online + split de pagos (MP) | Monetización por reserva |
 
-## 9. Estado actual del código (backend)
+## 9. Estado actual del sistema
 
-El acceso a datos vive en Supabase (PostgreSQL + RLS). El MVP está conectado:
+El frontend es una SPA estática; no hay API routes de Next.js ni claves
+privilegiadas en el bundle.
 
-- `src/lib/db/api.ts`: toda la lógica de datos contra Supabase (auth real con
-  Supabase Auth, onboarding, servicios, profesionales, horarios, clientes,
-  turnos, disponibilidad anti-solapamiento, cambios de estado, superadmin,
-  cuentas MP y pagos). Todas las funciones son `async`.
-- `src/lib/session.ts`: sesión manejada por Supabase Auth (`@supabase/ssr`).
-- `src/lib/supabase/*`: clientes (`server`, `client`, `admin` con service role).
-- `supabase/schema.sql`: esquema + RLS multi-tenant (ya incluye rol `superadmin`
-  y `email`/`phone` en `profiles`).
-- `supabase/seed.mjs`: migra los datos de prueba de `data/db.json` a Supabase.
+- `src/lib/db/api.ts`: acceso desde el navegador con anon key, para onboarding,
+  servicios, profesionales, horarios, clientes, reservas, pagos y panel admin.
+- `src/lib/supabase/client.ts`: un cliente browser con sesión de Supabase Auth.
+- `supabase/schema.sql`: tablas, triggers y RLS multi-tenant.
+- `supabase/migration_react.sql`: RPCs públicos acotados, políticas de escritura,
+  storage privado y endurecimiento de lecturas públicas.
+- `supabase/seed.mjs`: carga de datos de prueba; requiere una service-role key
+  solo en el entorno local del script, nunca en variables `VITE_*`.
+- `supabase/functions/reminders/`: recordatorios por email; requiere despliegue
+  independiente como Edge Function.
 
-**Pasos para levantar contra Supabase:**
-1. Copiar `.env.local.example` a `.env.local` y completar claves del proyecto.
-2. Ejecutar `supabase/schema.sql` en el SQL Editor de Supabase.
-3. `node supabase/seed.mjs` (opcional, si querés migrar los datos de prueba).
-   Las contraseñas originales no se recuperan: el seed crea usuarios con
-   `SEED_PASSWORD` (default `demo12345`).
+Las reservas públicas usan `public_tenant_access`, `booked_slots` y
+`create_public_booking`. El trigger `prevent_overlap` valida los cambios de
+agenda y serializa reservas concurrentes por tenant/profesional. Las horas de
+turno se guardan como hora local del negocio en un `timestamp` sin zona.
 
-**Notas:**
-- La contraseña y la auth las maneja Supabase Auth (ya no hay hash local).
-- Los turnos se guardan como `timestamp` local en `bookings`; la app trabaja con
-  strings `"YYYY-MM-DD HH:MM:SS"` que son compatibles.
-- El alta pública de turnos (cliente sin cuenta) usa el client con `service_role`
-  porque el cliente final no tiene sesión; el trigger `prevent_overlap` evita
-  la doble reserva a nivel de base de datos.
-
-**Faltante de Fases 2-4:** suscripción (cobro con MP Planes), recordatorios
-automáticos (WhatsApp/email), y Marketplace con split de pagos. Ver roadmap §8.
+Para desarrollo: `npm ci`, copiar `.env.example` a `.env.local`, configurar
+`VITE_SUPABASE_URL` y `VITE_SUPABASE_ANON_KEY`, y ejecutar `npm run dev`.
+Validaciones locales: `npm run lint` y `npm run build`. Las fases de pagos con
+Mercado Pago y WhatsApp siguen pendientes; las señas actuales son transferencias
+manuales con validación humana.

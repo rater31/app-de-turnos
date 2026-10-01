@@ -11,6 +11,7 @@
 --   7) Trigger de perfil automático al crear un usuario de auth
 --   8) prevent_overlap corregido (fix: confirmar turno fallaba siempre)
 --   9) timezone en tenants (fix: recordatorios con hora local, no UTC)
+--  10) public_tenant_access y endurecimiento del acceso público/columnas
 --
 -- Ejecutar DESPUÉS de supabase/schema.sql. Re-ejecutable (idempotente).
 -- Los bloques 8 y 9 son correcciones sobre schema.sql y sobre el bloque 3
@@ -79,7 +80,15 @@ declare
   v_deposit numeric;
   v_amount numeric;
   v_status text;
+  v_receipt_object_path text;
+  v_receipt_prefix text;
 begin
+  -- Este RPC público solo acepta transferencias manuales pendientes. Un cliente
+  -- no puede declararse un pago online ni marcarlo como pagado desde el browser.
+  if coalesce(p_payment_method, '') <> 'local' or coalesce(p_is_paid, false) then
+    raise exception 'Los pagos online deben confirmarse por un flujo seguro del servidor.' using errcode = 'P0001';
+  end if;
+
   -- Valida que el tenant existe y está activo
   select t.* into v_tenant
   from public.tenants t
@@ -163,11 +172,6 @@ begin
     raise exception 'Ese profesional no brinda ese servicio.' using errcode = 'P0001';
   end if;
 
-  -- El turno debe ser en una fecha futura (comparación de instantes, like api.ts)
-  if p_starts_at <= now() then
-    raise exception 'El turno debe ser en una fecha futura.' using errcode = 'P0001';
-  end if;
-
   -- Rango del turno: si p_ends_at viene null, lo deducimos de la duración
   if p_ends_at is null then
     v_ends := p_starts_at + make_interval(mins => v_service.duration_minutes);
@@ -182,10 +186,37 @@ begin
   v_starts_local := (p_starts_at at time zone 'UTC')::timestamp;
   v_ends_local   := (v_ends at time zone 'UTC')::timestamp;
 
+  -- p_starts_at lleva la hora local marcada con Z solo como transporte; no es
+  -- un instante UTC real. Compararlo con now() directamente rechazaba turnos
+  -- cercanos (por ejemplo, el desfase de 3 h de Argentina).
+  if v_starts_local <= (now() at time zone coalesce(
+    nullif(v_tenant.timezone, ''), 'America/Argentina/Buenos_Aires'
+  )) then
+    raise exception 'El turno debe ser en una fecha futura.' using errcode = 'P0001';
+  end if;
+
   -- ¿Este servicio requiere seña? (igual que serviceRequiresDeposit / api.ts)
   v_wants_deposit := v_service.requires_deposit
     and v_service.deposit_amount is not null
     and v_service.deposit_amount > 0;
+
+  -- El comprobante tiene que pertenecer al tenant y existir en el bucket
+  -- privado; no se acepta una ruta arbitraria enviada por el navegador.
+  if v_wants_deposit then
+    v_receipt_prefix := 'comprobantes/' || v_tenant.slug || '/';
+    if p_receipt_path is null
+      or left(p_receipt_path, length(v_receipt_prefix)) <> v_receipt_prefix then
+      raise exception 'Adjuntá el comprobante de la seña.' using errcode = 'P0001';
+    end if;
+    v_receipt_object_path := substr(p_receipt_path, length('comprobantes/') + 1);
+    if not exists (
+      select 1 from storage.objects o
+      where o.bucket_id = 'comprobantes'
+        and o.name = v_receipt_object_path
+    ) then
+      raise exception 'No se encontró el comprobante de la seña.' using errcode = 'P0001';
+    end if;
+  end if;
 
   -- Plan Gratis: tope mensual de señas (FREE_DEPOSIT_MONTHLY_LIMIT = 10 en api.ts).
   -- Nota: revisando la fuente, api.ts NO limita "una reserva gratis por cliente":
@@ -267,20 +298,13 @@ begin
   end if;
 
   -- Seña -> payment (si el servicio la requiere)
-  v_deposit := case
-    when v_wants_deposit then coalesce(p_amount, v_service.deposit_amount)
-    else null
-  end;
+  -- p_amount se conserva en la firma RPC por compatibilidad, pero no se confía
+  -- en él: el importe válido siempre sale de la configuración del servicio.
+  v_deposit := case when v_wants_deposit then v_service.deposit_amount else null end;
 
   if v_deposit is not null and v_deposit > 0 then
-    if p_payment_method not in ('local', 'mercado_pago') then
-      raise exception 'El medio de pago es inválido.' using errcode = 'P0001';
-    end if;
-    if p_payment_method = 'mercado_pago' and not p_is_paid then
-      raise exception 'Los pagos con Mercado Pago deben estar pagos.' using errcode = 'P0001';
-    end if;
     v_amount := v_deposit;
-    v_status := case when p_is_paid then 'paid' else 'pending' end;
+    v_status := 'pending';
 
     insert into public.payments (
       tenant_id, booking_id, amount, method, status, receipt_url
@@ -656,9 +680,15 @@ values ('logos', 'logos', true)
 on conflict (id) do update set public = true;
 
 -- REACT-MIGRATION: bucket privado de comprobantes
-insert into storage.buckets (id, name, public)
-values ('comprobantes', 'comprobantes', false)
-on conflict (id) do update set public = false;
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values (
+  'comprobantes', 'comprobantes', false, 5242880,
+  array['image/jpeg', 'image/png', 'image/webp', 'application/pdf']
+)
+on conflict (id) do update
+set public = false,
+    file_size_limit = excluded.file_size_limit,
+    allowed_mime_types = excluded.allowed_mime_types;
 
 -- logos: lectura pública ya existe (logos_public_read en schema.sql).
 -- REACT-MIGRATION: escritura del dueño (path con el tenant_id como carpeta).
@@ -861,6 +891,12 @@ returns trigger
 language plpgsql
 as $$
 begin
+  -- Serializa las escrituras por tenant/profesional. El SELECT del trigger sin
+  -- este lock no ve inserts concurrentes todavía no confirmados.
+  perform pg_advisory_xact_lock(
+    hashtextextended('turnos:booking:' || new.tenant_id::text || ':' || new.staff_id::text, 0)
+  );
+
   if exists (
     select 1
     from public.bookings b
@@ -898,3 +934,97 @@ comment on column public.tenants.timezone is
 update public.tenants
 set timezone = 'America/Argentina/Buenos_Aires'
 where timezone is null or btrim(timezone) = '';
+
+-- ############################################################################
+-- 10. Acceso público mínimo y estado de plan sin exponer subscriptions
+-- ############################################################################
+create or replace function public.public_tenant_access(p_tenant_id uuid)
+returns text
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  select case
+    when t.status <> 'active' then 'blocked'
+    when (
+      select s.status from public.subscriptions s
+      where s.tenant_id = t.id
+      order by s.created_at desc
+      limit 1
+    ) = 'active' then 'pro'
+    when t.trial_ends_at is not null and now() < t.trial_ends_at then 'pro'
+    when t.plan = 'pro' then 'blocked'
+    else 'gratis'
+  end
+  from public.tenants t
+  where t.id = p_tenant_id
+$$;
+
+revoke all on function public.public_tenant_access(uuid) from public;
+grant execute on function public.public_tenant_access(uuid) to anon, authenticated;
+
+-- El catálogo es visible solo para tenants activos; cada owner conserva acceso
+-- a su tenant incluso si está suspendido para poder revisar/reactivar su plan.
+drop policy if exists tenants_select_public on public.tenants;
+create policy tenants_select_public on public.tenants
+  for select to anon, authenticated
+  using (status = 'active');
+
+drop policy if exists tenants_select_own_react on public.tenants;
+create policy tenants_select_own_react on public.tenants
+  for select to authenticated
+  using (id = public.current_tenant_id());
+
+-- El email del tenant es dato interno; el resto de columnas seleccionadas son
+-- necesarias para la reserva pública o para el panel y no incluyen credenciales.
+revoke select on table public.tenants from public, anon, authenticated;
+grant select (
+  id, name, slug, description, phone, address, logo_url, logo_text, primary_color,
+  alias_cbu, banco, titular, plan, status, trial_ends_at, created_at, updated_at
+) on table public.tenants to anon, authenticated;
+grant select on table public.tenants to service_role;
+
+drop policy if exists services_select_public on public.services;
+create policy services_select_public on public.services
+  for select to anon, authenticated
+  using (
+    active and exists (
+      select 1 from public.tenants t
+      where t.id = services.tenant_id and t.status = 'active'
+    )
+  );
+
+drop policy if exists staff_select_public on public.staff_members;
+create policy staff_select_public on public.staff_members
+  for select to anon, authenticated
+  using (
+    active and exists (
+      select 1 from public.tenants t
+      where t.id = staff_members.tenant_id and t.status = 'active'
+    )
+  );
+
+drop policy if exists hours_select_public on public.business_hours;
+create policy hours_select_public on public.business_hours
+  for select to anon, authenticated
+  using (
+    active and exists (
+      select 1 from public.tenants t
+      where t.id = business_hours.tenant_id and t.status = 'active'
+    )
+  );
+
+drop policy if exists service_staff_select_public on public.service_staff;
+create policy service_staff_select_public on public.service_staff
+  for select to anon, authenticated
+  using (
+    exists (
+      select 1
+      from public.services s
+      join public.staff_members sm on sm.id = service_staff.staff_id and sm.tenant_id = s.tenant_id
+      join public.tenants t on t.id = s.tenant_id
+      where s.id = service_staff.service_id
+        and s.active and sm.active and t.status = 'active'
+    )
+  );

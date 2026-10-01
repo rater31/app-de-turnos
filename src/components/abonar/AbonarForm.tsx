@@ -10,7 +10,6 @@ export type AbonarFormProps = {
   tenantName: string;
   tenantSlug: string;
   plan: string;
-  subscriptionStatus: string;
   currentPeriodEnd: string | null;
   amount: number;
   bank: { alias_cbu: string | null; banco: string | null; titular: string | null };

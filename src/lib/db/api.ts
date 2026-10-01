@@ -73,6 +73,37 @@ export function tenantAccess(
 }
 
 const RECEIPT_BUCKET = "comprobantes";
+const RECEIPT_URL_TTL_SECONDS = 60 * 60;
+const TENANT_SELECT =
+  "id, name, slug, description, phone, address, logo_url, logo_text, primary_color, alias_cbu, banco, titular, plan, status, trial_ends_at, created_at, updated_at";
+
+async function resolveReceiptUrl(receiptUrl: string | null | undefined): Promise<string | null> {
+  if (!receiptUrl) return null;
+  const prefix = `${RECEIPT_BUCKET}/`;
+  let path: string;
+  if (receiptUrl.startsWith(prefix)) {
+    path = receiptUrl.slice(prefix.length);
+  } else {
+    // Compatibilidad con los comprobantes de plan guardados como signed URL de
+    // un año: se extrae su path aunque el token anterior ya haya vencido.
+    try {
+      const url = new URL(receiptUrl);
+      const markers = [
+        `/storage/v1/object/sign/${RECEIPT_BUCKET}/`,
+        `/storage/v1/object/public/${RECEIPT_BUCKET}/`,
+      ];
+      const marker = markers.find((candidate) => url.pathname.includes(candidate));
+      if (!marker) return receiptUrl;
+      path = decodeURIComponent(url.pathname.slice(url.pathname.indexOf(marker) + marker.length));
+    } catch {
+      return receiptUrl;
+    }
+  }
+  const { data, error } = await supabaseClient.storage
+    .from(RECEIPT_BUCKET)
+    .createSignedUrl(path, RECEIPT_URL_TTL_SECONDS);
+  return error ? null : data?.signedUrl ?? null;
+}
 
 // Límite de señas por mes para el plan Gratis. El RPC create_public_booking lo
 // replica server-side (misma constante: 10).
@@ -107,8 +138,8 @@ async function uploadPublicReceipt(file: File, tenantSlug: string): Promise<stri
   return `${RECEIPT_BUCKET}/${path}`;
 }
 
-// Sube el comprobante del pago de plan (dueño autenticado). El dueño puede
-// firmar URLs de los comprobantes de su tenant (comprobantes_select_tenant_react).
+// Sube el comprobante del pago de plan y persiste la ruta privada. La URL firmada
+// se genera al leerlo para que no expire después de un año.
 async function uploadPlanReceipt(
   client: SupabaseClient,
   file: File,
@@ -122,10 +153,7 @@ async function uploadPlanReceipt(
     upsert: false,
   });
   if (error) return null;
-  const { data: urlData } = await client.storage
-    .from(RECEIPT_BUCKET)
-    .createSignedUrl(path, 60 * 60 * 24 * 365);
-  return urlData?.signedUrl ?? null;
+  return `${RECEIPT_BUCKET}/${path}`;
 }
 
 const LOGO_BUCKET = "logos";
@@ -166,7 +194,7 @@ export type UserWithTenant = {
 export async function getUserWithTenant(userId: string): Promise<UserWithTenant | null> {
   const { data: profile } = await supabaseClient
     .from("profiles")
-    .select("*, tenants(*)")
+    .select(`*, tenants(${TENANT_SELECT})`)
     .eq("id", userId)
     .maybeSingle();
 
@@ -263,38 +291,20 @@ export type PublicBookingData = {
 export async function getPublicBookingData(slug: string): Promise<PublicBookingData | null> {
   const { data: tenant } = await supabaseClient
     .from("tenants")
-    .select("*")
+    .select(TENANT_SELECT)
     .eq("slug", slug)
     .eq("status", "active")
     .maybeSingle();
   if (!tenant) return null;
 
-  // La suscripción no es legible con anon key (no hay policy select_public);
-  // el RPC create_public_booking valida el acceso de todas formas server-side.
-  let sub: { status: string } | null | undefined;
-  try {
-    const { data } = await supabaseClient
-      .from("subscriptions")
-      .select("status")
-      .eq("tenant_id", tenant.id)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    sub = data ?? null;
-  } catch {
-    sub = null;
+  const { data: accessData, error: accessError } = await supabaseClient.rpc(
+    "public_tenant_access",
+    { p_tenant_id: tenant.id },
+  );
+  if (accessError || !["pro", "gratis", "blocked"].includes(accessData)) {
+    throw new Error("No se pudo validar el acceso del negocio.");
   }
-
-  let access: TenantAccess;
-  if (sub) {
-    access = tenantAccess(tenant, sub);
-  } else {
-    const trialActive =
-      tenant.trial_ends_at != null &&
-      tenant.trial_ends_at !== "" &&
-      new Date(tenant.trial_ends_at).getTime() > Date.now();
-    access = trialActive || tenant.plan === "pro" ? "pro" : "gratis";
-  }
+  const access = accessData as TenantAccess;
   if (access === "blocked") return null;
 
   const pro = access === "pro";
@@ -395,15 +405,11 @@ export async function serviceRequiresDeposit(
     .maybeSingle();
   if (!tenant) return false;
 
-  const { data: sub } = await supabaseClient
-    .from("subscriptions")
-    .select("status")
-    .eq("tenant_id", tenant.id)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  // Un negocio bloqueado no puede recibir señas.
-  if (tenantAccess(tenant, sub) === "blocked") return false;
+  const { data: access, error: accessError } = await supabaseClient.rpc(
+    "public_tenant_access",
+    { p_tenant_id: tenant.id },
+  );
+  if (accessError || (access !== "pro" && access !== "gratis")) return false;
 
   const { data: service } = await supabaseClient
     .from("services")
@@ -499,7 +505,9 @@ export async function createPublicBooking(input: {
     p_ends_at: toIsoWallClock(endsDate),
     p_notes: input.notes?.trim() || null,
     p_payment_method: "local",
-    p_amount: wantsDeposit ? Number(service.deposit_amount) : null,
+    // El importe se calcula en el RPC a partir del servicio; nunca se confía en
+    // un valor enviado por el navegador.
+    p_amount: null,
     p_is_paid: false,
     p_receipt_path: receiptPath,
   });
@@ -535,7 +543,7 @@ export async function listBookings(tenantId: string): Promise<BookingRow[]> {
     .eq("tenant_id", tenantId)
     .order("starts_at", { ascending: true });
 
-  return (data ?? []).map((b: any) => ({
+  return Promise.all((data ?? []).map(async (b: any) => ({
     id: b.id,
     starts_at: b.starts_at,
     ends_at: b.ends_at,
@@ -554,10 +562,10 @@ export async function listBookings(tenantId: string): Promise<BookingRow[]> {
       ? {
           id: b.payments[0].id,
           status: b.payments[0].status ?? "pending",
-          receipt_url: b.payments[0].receipt_url ?? null,
+          receipt_url: await resolveReceiptUrl(b.payments[0].receipt_url),
         }
       : null,
-  }));
+  })));
 }
 
 export async function countRows(tenantId: string, table: "services" | "clients" | "staff_members") {
@@ -675,7 +683,7 @@ export async function getSubscription(tenantId: string) {
 }
 
 export async function getTenant(tenantId: string): Promise<DBTenant | null> {
-  const { data } = await supabaseClient.from("tenants").select("*").eq("id", tenantId).maybeSingle();
+  const { data } = await supabaseClient.from("tenants").select(TENANT_SELECT).eq("id", tenantId).maybeSingle();
   return dbTenant(data);
 }
 // ---------------------------------------------------------------------------
@@ -683,7 +691,7 @@ export async function getTenant(tenantId: string): Promise<DBTenant | null> {
 // ---------------------------------------------------------------------------
 
 export async function listTenants() {
-  const { data: tenants } = await supabaseClient.from("tenants").select("*").order("created_at", { ascending: false });
+  const { data: tenants } = await supabaseClient.from("tenants").select(TENANT_SELECT).order("created_at", { ascending: false });
   const { data: profiles } = await supabaseClient.from("profiles").select("*");
   const { data: counts } = await supabaseClient.from("bookings").select("tenant_id, id");
   const { data: staffCounts } = await supabaseClient.from("staff_members").select("tenant_id, id");
@@ -845,7 +853,7 @@ export async function listSubscriptionPayments(): Promise<SubscriptionPaymentRow
     .from("subscription_payments")
     .select("*, tenants(name, slug)")
     .order("created_at", { ascending: false });
-  return (data ?? []).map((p: any) => ({
+  return Promise.all((data ?? []).map(async (p: any) => ({
     id: p.id,
     tenant_name: p.tenants?.name ?? "—",
     tenant_slug: p.tenants?.slug ?? "",
@@ -853,12 +861,12 @@ export async function listSubscriptionPayments(): Promise<SubscriptionPaymentRow
     subscription_id: p.subscription_id,
     amount: Number(p.amount),
     status: p.status,
-    receipt_url: p.receipt_url ?? null,
+    receipt_url: await resolveReceiptUrl(p.receipt_url),
     period_start: p.period_start ?? null,
     period_end: p.period_end ?? null,
     created_at: p.created_at,
     processed_at: p.processed_at ?? null,
-  }));
+  })));
 }
 
 export async function setSubscriptionPaymentStatus(
@@ -1008,14 +1016,14 @@ export async function listAdminPayments(): Promise<AdminPaymentRow[]> {
     } | null;
   };
 
-  return ((subPayments ?? []) as RawSubscriptionPayment[]).map((p) => {
+  return Promise.all(((subPayments ?? []) as RawSubscriptionPayment[]).map(async (p) => {
     const profiles = p.tenants?.profiles ?? [];
     const owner = profiles.find((u) => u.role === "owner") ?? profiles[0] ?? null;
     return {
       id: p.id,
       amount: Number(p.amount),
       status: p.status,
-      receipt_url: p.receipt_url ?? null,
+      receipt_url: await resolveReceiptUrl(p.receipt_url),
       tenant_id: p.tenant_id,
       tenant_name: p.tenants?.name ?? "—",
       tenant_slug: p.tenants?.slug ?? "",
@@ -1024,7 +1032,7 @@ export async function listAdminPayments(): Promise<AdminPaymentRow[]> {
       created_at: p.created_at,
       processed_at: p.processed_at ?? null,
     };
-  });
+  }));
 }
 
 export type AdminSubscriptionRow = {
@@ -1078,7 +1086,7 @@ export async function getTenantOwner(tenantId: string) {
 // Detalle de negocio para superadmin (RLS is_superadmin).
 export async function getAdminTenantDetail(tenantId: string) {
   const [{ data: tenant }, { data: owner }, { data: sub }] = await Promise.all([
-    supabaseClient.from("tenants").select("*").eq("id", tenantId).maybeSingle(),
+    supabaseClient.from("tenants").select(TENANT_SELECT).eq("id", tenantId).maybeSingle(),
     supabaseClient
       .from("profiles")
       .select("id, email, full_name, role, created_at")
@@ -1529,7 +1537,7 @@ export async function listPayments(tenantId: string): Promise<DBPayment[]> {
     .select("*")
     .eq("tenant_id", tenantId)
     .order("created_at", { ascending: false });
-  return (data ?? []).map((p: any) => ({
+  return Promise.all((data ?? []).map(async (p: any) => ({
     id: p.id,
     tenant_id: p.tenant_id,
     booking_id: p.booking_id,
@@ -1537,9 +1545,9 @@ export async function listPayments(tenantId: string): Promise<DBPayment[]> {
     method: p.method,
     status: p.status,
     mp_payment_id: p.mp_payment_id ?? null,
-    receipt_url: p.receipt_url ?? null,
+    receipt_url: await resolveReceiptUrl(p.receipt_url),
     created_at: p.created_at,
-  }));
+  })));
 }
 
 // ---------------------------------------------------------------------------
