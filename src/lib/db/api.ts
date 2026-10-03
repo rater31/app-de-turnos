@@ -769,8 +769,9 @@ export async function setUserRole(userId: string, role: "owner" | "superadmin") 
 }
 
 // Borra los datos del usuario y de su tenant (RPC SECURITY DEFINER). Solo el
-// dueño del tenant o un superadmin pueden invocarlo. El usuario de Supabase
-// Auth queda huérfano a propósito (decisión documentada del RPC delete_user_data).
+// dueño del tenant o un superadmin pueden invocarlo. El RPC también borra el
+// usuario de Supabase Auth del objetivo, para liberar el email y que la cuenta
+// se pueda volver a crear.
 export async function deleteAdminUser(
   userId: string,
 ): Promise<{ ok: true } | { ok: false; message: string }> {

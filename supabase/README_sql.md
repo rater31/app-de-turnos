@@ -73,7 +73,8 @@ Con `@supabase/supabase-js` (cliente básico, anon key, sin service role):
   tablas del tenant gracias a las policies `-- REACT-MIGRATION`; el logo se sube a
   `logos/<tenant_id>/logo.ext`.
 - **Borrar mi negocio:** `rpc('delete_user_data', { p_user_id })` (solo owner del
-  tenant o superadmin). El usuario de Auth queda huérfano (decisión de producto).
+  tenant o superadmin). Borra también el usuario de Auth del objetivo, así que su
+  email queda libre para volver a registrarse.
 - **Superadmin:** policies `all_superadmin_react` en `profiles` para gestionar
   usuarios; el resto de tablas de administración ya tenían policies superadmin en
   `schema.sql`.
