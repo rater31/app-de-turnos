@@ -49,7 +49,7 @@ conversión del SaaS.
 | Problema/Solución | No-shows, agenda en papel, pérdida de clientes → turnos online + recordatorios |
 | Beneficios | Reservas 24/7, recordatorios automáticos, menos ausencias, cobro de señas |
 | Cómo funciona | 3 pasos: crear cuenta → cargar servicios/horarios → compartir tu link |
-| Planes y precios | Plan Free (prueba), Plan Pro (pago mensual), comisión por reserva |
+| Planes y precios | Plan Gratis (1 profesional, 10 señas/mes), Plan Pro (pago mensual), comisión por reserva |
 | Testimonios | Casos reales de negocios |
 | FAQ | Preguntas frecuentes (¿se puede sin pagos?, ¿qué comisiones?, etc.) |
 | CTA final | Registro / prueba gratuita |
@@ -59,7 +59,7 @@ conversión del SaaS.
 1. Entra a la landing.
 2. Se registra (crea su `Tenant` + cuenta `Owner`).
 3. Configura sus servicios y horarios en el panel.
-4. Empieza a recibir reservas → pasa a plan de pago cuando vence la prueba.
+4. Empieza a recibir reservas → prueba de 7 días; al vencer cae al plan Gratis (la página sigue reservando) y puede pasar a Pro.
 
 ## 4. Stack
 

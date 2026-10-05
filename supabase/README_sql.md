@@ -10,14 +10,56 @@ el cliente con la anon key.
 1. **`supabase/schema.sql`** — base (tablas, triggers y políticas RLS).
 2. **`supabase/migration_react.sql`** — agrega los RPCs `create_public_booking`,
    `booked_slots`, `public_tenant_access`, `onboard_tenant`, `delete_user_data`,
-   policies de escritura client-side (`-- REACT-MIGRATION`), endurecimiento de
-   políticas/columnas públicas, límites del bucket y trigger de perfil.
+   la tabla `platform_settings` con el precio del plan, policies de escritura
+   client-side (`-- REACT-MIGRATION`), endurecimiento de políticas/columnas
+   públicas, límites del bucket y trigger de perfil.
 3. **`supabase/cron_reminders.sql`** — programa pg_cron (`*/15 * * * *`) que
    llama a la Edge Function `reminders` con `net.http_post`.
 
 En una base existente, ejecutar la versión actualizada de `migration_react.sql`
-antes de publicar el nuevo frontend: este llama al RPC `public_tenant_access` y
-usa enlaces firmados para los comprobantes. La migración es re-ejecutable.
+antes de publicar el nuevo frontend: este llama al RPC `public_tenant_access`, usa
+enlaces firmados para los comprobantes y crea `platform_settings` (bloque 12). La
+migración es re-ejecutable.
+
+## Acceso por plan y prueba
+
+La decisión de acceso está replicada en tres lugares y los tres tienen que coincidir:
+
+| Capa | Dónde |
+| --- | --- |
+| SQL | `create_public_booking` (bloque 1) y `public_tenant_access` (bloque 10) |
+| Frontend | `tenantAccess()` en `src/lib/db/api.ts` |
+
+```
+status <> 'active'      -> blocked   (deshabilitado por el superadmin)
+suscripción 'active'    -> pro
+prueba vigente          -> pro
+resto                   -> gratis
+```
+
+La prueba del plan Pro dura **7 días** (bloque 3, `onboard_tenant`). Al vencer, el
+acceso cae a `gratis` y la página de reservas sigue viva con 1 profesional y 10
+señas por mes. Antes caía a `blocked` y la página devolvía "El negocio no está
+disponible", o sea que el negocio perdía reservas; y como el que elegía Pro era el
+único que caía a `blocked`, al que elegía pagar le iba peor. Ver el bloque 13.
+
+`blocked` queda reservado para `tenants.status <> 'active'`, que se cambia desde
+`/admin/negocios`.
+
+## Precio del plan
+
+El precio del plan Pro vive en `platform_settings` (tabla singleton, fila única
+garantizada por `check (id)`) y se edita desde **`/admin/planes`**. Antes estaba
+hardcodeado en `src/lib/plataforma.ts` y repetido como texto en la landing, el
+registro y los ajustes.
+
+| Aspecto | Decisión |
+| --- | --- |
+| Lectura | Pública (anon): el precio se muestra en la landing sin sesión. |
+| Escritura | Solo superadmin (`platform_settings_update_superadmin`). |
+| Siembra | `insert ... on conflict do nothing` con 8000: una corrida posterior no pisa lo configurado. |
+| Cobro real | El monto lo toma el servidor (`createSubscriptionPayment`), no el navegador. Cambiar el precio no altera pagos ya registrados: cada `subscription_payments` guarda lo que se cobró. |
+| Frontend | `src/lib/planPrice.ts` cachea el valor en módulo; `invalidatePlanPrice()` lo refresca tras guardar en `/admin/planes`. |
 
 ## Secrets a configurar en Supabase
 

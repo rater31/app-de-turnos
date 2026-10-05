@@ -81,15 +81,15 @@ export default function PanelHomePage() {
             </p>
             <p className="mt-0.5 text-xs text-amber-800">
               {depositCount >= FREE_DEPOSIT_MONTHLY_LIMIT
-                ? "Llegaste al límite. Actualizá para seguir cobrando señas."
-                : "Con Premium cobrás señas ilimitadas."}
+                ? "Llegaste al límite. Pasá a Pro para seguir cobrando señas."
+                : "Con Pro cobrás señas ilimitadas."}
             </p>
           </div>
           <Link
             to={`/abonar/${tenant.slug}`}
             className="rounded-lg bg-gradient-to-r from-amber-500 to-orange-600 px-4 py-2 text-xs font-bold text-white shadow transition hover:scale-105"
           >
-            Actualizar a Premium
+            Pasar a Pro
           </Link>
         </div>
       )}

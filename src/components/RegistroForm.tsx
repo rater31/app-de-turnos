@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { z } from "zod";
 import { db } from "@/lib/db/api";
 import { supabaseClient } from "@/lib/supabase/client";
+import { usePlanPrice } from "@/lib/planPrice";
 
 const OnboardingSchema = z.object({
   businessName: z.string().min(2, "El nombre del negocio es obligatorio"),
@@ -18,17 +19,20 @@ type OnboardingState = {
   message?: string;
 };
 
-const PLAN_INFO: Record<string, { nombre: string; precio: string }> = {
-  gratis: { nombre: "Gratis", precio: "$0" },
-  pro: { nombre: "Pro", precio: "$8.000/mes" },
-};
-
 export default function RegistroForm({ plan }: { plan: "pro" | "gratis" | null }) {
   const [state, setState] = useState<OnboardingState>({});
   const [pending, setPending] = useState(false);
   const navigate = useNavigate();
+  const planPrice = usePlanPrice();
 
-  const planInfo = plan ? PLAN_INFO[plan] : null;
+  // El precio de Pro viene de `platform_settings`; antes era "$8.000/mes"
+  // hardcodeado y se desincronizaba del resto de la app.
+  const planInfo =
+    plan === "pro"
+      ? { nombre: "Pro", precio: `${planPrice}/mes` }
+      : plan === "gratis"
+        ? { nombre: "Gratis", precio: "$0" }
+        : null;
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -102,7 +106,7 @@ export default function RegistroForm({ plan }: { plan: "pro" | "gratis" | null }
           </p>
           <p className="text-indigo-700">
             {planInfo?.precio}
-            {plan === "pro" && " · Se abona al vencer tu prueba de 30 días."}
+            {plan === "pro" && " · 7 días de prueba. Después seguís en Gratis."}
           </p>
         </div>
       )}
@@ -149,7 +153,8 @@ export default function RegistroForm({ plan }: { plan: "pro" | "gratis" | null }
       </button>
 
       <p className="text-center text-xs text-slate-500">
-        Al registrarte empezás una prueba gratuita de 30 días. Sin tarjeta de crédito.
+        Al registrarte empezás una prueba gratuita de 7 días con todo desbloqueado. Sin
+        tarjeta de crédito.
       </p>
     </form>
   );

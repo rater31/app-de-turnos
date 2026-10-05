@@ -1,5 +1,6 @@
 import { FadeIn } from "@/components/motion";
 import { env } from "@/lib/env";
+import { usePlanPrice } from "@/lib/planPrice";
 import { Link } from "react-router-dom";
 
 const CURRENT_YEAR = new Date().getFullYear();
@@ -90,38 +91,42 @@ const PASOS = [
   { n: "03", t: "Compartí tu link", d: "Mandá tu página de reservas por WhatsApp o Instagram y empezá a recibir turnos." },
 ];
 
-const PLANES = [
-  {
-    slug: "gratis",
-    nombre: "Gratis",
-    precio: "$0",
-    detalle: "Para arrancar y validar",
-    featured: false,
-    items: [
-      "1 profesional",
-      "Reservas online ilimitadas",
-      "Agenda del panel",
-      "Hasta 10 señas/mes",
-      "30 días de prueba Pro completa",
-    ],
-    cta: "Probar gratis",
-  },
-  {
-    slug: "pro",
-    nombre: "Pro",
-    precio: "$8.000",
-    detalle: "/mes por negocio",
-    featured: true,
-    items: [
-      "Profesionales ilimitados",
-      "Recordatorios por email",
-      "Señas online ilimitadas",
-      "Página de reservas con tu marca",
-      "Soporte prioritario",
-    ],
-    cta: "Empezar ahora",
-  },
-];
+// El precio de Pro sale de `platform_settings` (usePlanPrice), no de un string
+// fijo: antes estaba escrito acá y se desincronizaba del resto de la app.
+function buildPlanes(planPrice: string) {
+  return [
+    {
+      slug: "gratis",
+      nombre: "Gratis",
+      precio: "$0",
+      detalle: "Para arrancar y validar",
+      featured: false,
+      items: [
+        "1 profesional",
+        "Reservas online ilimitadas",
+        "Agenda del panel",
+        "Hasta 10 señas/mes",
+        "7 días de prueba Pro completa",
+      ],
+      cta: "Probar gratis",
+    },
+    {
+      slug: "pro",
+      nombre: "Pro",
+      precio: planPrice,
+      detalle: "/mes por negocio",
+      featured: true,
+      items: [
+        "Profesionales ilimitados",
+        "Recordatorios por email",
+        "Señas online ilimitadas",
+        "Página de reservas con tu marca",
+        "Soporte prioritario",
+      ],
+      cta: "Empezar ahora",
+    },
+  ];
+}
 
 const PREGUNTAS = [
   {
@@ -143,6 +148,9 @@ const PREGUNTAS = [
 ];
 
 export default function HomePage() {
+  const planPrice = usePlanPrice();
+  const PLANES = buildPlanes(planPrice);
+
   return (
     <>
       <header className="sticky top-0 z-40 border-b border-slate-200/70 bg-white/80 backdrop-blur">

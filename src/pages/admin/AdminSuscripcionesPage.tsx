@@ -43,7 +43,7 @@ export function AdminSuscripcionesPage() {
   async function cambiarPlan(sub: Sub, plan: "pro" | "gratis") {
     const message =
       plan === "pro"
-        ? `¿Pasar ${sub.tenant_name} a plan Premium? Se activará por 30 días.`
+        ? `¿Pasar ${sub.tenant_name} a plan Pro? Se activará por 30 días.`
         : `¿Pasar ${sub.tenant_name} a plan Gratis? Se cancelará la suscripción activa.`;
     if (!window.confirm(message)) return;
     setPendingId(sub.tenant_id);
@@ -106,16 +106,16 @@ function SubscriptionRow({
   onCambiarPlan: (sub: Sub, plan: "pro" | "gratis") => void;
 }) {
   const pending = pendingId === sub.tenant_id;
-  const isPremium = sub.status === "active";
+  const isPro = sub.status === "active";
 
   const planPill =
     sub.status === "active"
-      ? { label: "Premium", cls: "bg-emerald-50 text-emerald-700" }
+      ? { label: "Pro", cls: "bg-emerald-50 text-emerald-700" }
       : sub.status === "trial"
         ? { label: "Trial", cls: "bg-sky-50 text-sky-700" }
         : sub.status === "past_due"
-          ? { label: "Bloqueado", cls: "bg-amber-50 text-amber-700" }
-          : { label: "Free", cls: "bg-slate-100 text-slate-500" };
+          ? { label: "Atrasado", cls: "bg-amber-50 text-amber-700" }
+          : { label: "Gratis", cls: "bg-slate-100 text-slate-500" };
 
   const statusCls: Record<string, string> = {
     active: "bg-emerald-50 text-emerald-700",
@@ -156,7 +156,7 @@ function SubscriptionRow({
       </div>
 
       <div className="flex shrink-0 flex-wrap gap-2">
-        {isPremium ? (
+        {isPro ? (
           <>
             {[1, 3, 6, 12].map((m) => (
               <button
@@ -185,7 +185,7 @@ function SubscriptionRow({
             onClick={() => onCambiarPlan(sub, "pro")}
             className="rounded-lg bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-600 disabled:opacity-60"
           >
-            {pending ? "…" : "Pasar a Premium"}
+            {pending ? "…" : "Pasar a Pro"}
           </button>
         )}
       </div>

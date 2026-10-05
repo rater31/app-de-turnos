@@ -89,9 +89,10 @@ export default function AbonarForm(props: AbonarFormProps) {
           {props.tenantName} · Plan {props.plan === "pro" ? "Pro" : props.plan}
         </h1>
         <p className="mt-2 text-sm text-slate-600">
-          Tu negocio está deshabilitado. Aboná el plan para reactivarlo.
+          Transferí el monto y subí el comprobante. Te lo validamos y activamos el Pro en
+          el día.
           {props.currentPeriodEnd &&
-            ` Tu período venció el ${new Date(props.currentPeriodEnd).toLocaleDateString("es-AR")}.`}
+            ` Tu período actual venció el ${new Date(props.currentPeriodEnd).toLocaleDateString("es-AR")}.`}
         </p>
 
         <div className="mt-6 rounded-2xl bg-indigo-50 p-4">
@@ -166,7 +167,7 @@ export default function AbonarForm(props: AbonarFormProps) {
 
           {state.success ? (
             <div className="rounded-2xl bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">
-              ✅ Comprobante enviado. El administrador lo revisará para reactivar tu negocio.
+              ✅ Comprobante enviado. Lo revisamos y activamos el Pro en el día.
             </div>
           ) : (
             <button

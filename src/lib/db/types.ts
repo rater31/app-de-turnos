@@ -131,6 +131,12 @@ export type DBSubscriptionPayment = {
   processed_at: string | null;
 };
 
+export type DBPlatformSettings = {
+  id: boolean;
+  plan_price: number;
+  updated_at: string;
+};
+
 export type DB = {
   users: DBUser[];
   profiles: DBProfile[];
@@ -144,4 +150,5 @@ export type DB = {
   subscriptions: DBSubscription[];
   seller_accounts: DBSellerAccount[];
   payments: DBPayment[];
+  platform_settings: DBPlatformSettings[];
 };

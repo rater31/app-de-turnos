@@ -172,7 +172,7 @@ export default function ServicioForm({
           </div>
           {!isPro && (
             <p className="mt-1 text-xs text-slate-500">
-              En el plan Gratis podés cobrar hasta 10 señas por mes. En Premium, ilimitadas.
+              En el plan Gratis podés cobrar hasta 10 señas por mes. En Pro, ilimitadas.
             </p>
           )}
         </div>

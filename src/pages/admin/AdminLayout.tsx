@@ -9,6 +9,7 @@ const NAV_ITEMS = [
   { href: "/admin/usuarios", label: "Usuarios", active: "/admin/usuarios", exact: false },
   { href: "/admin/pagos", label: "Pagos", active: "/admin/pagos", exact: false },
   { href: "/admin/suscripciones", label: "Suscripciones", active: "/admin/suscripciones", exact: false },
+  { href: "/admin/planes", label: "Planes", active: "/admin/planes", exact: false },
 ];
 
 export function AdminLayout() {

@@ -285,6 +285,30 @@ create table if not exists public.subscription_payments (
 );
 
 -- ----------------------------------------------------------------------------
+-- CONFIGURACIÓN DE LA PLATAFORMA (singleton)
+-- ----------------------------------------------------------------------------
+-- Precio del plan Pro, editable por el superadmin desde /admin/planes.
+--
+-- Antes el precio estaba hardcodeado en src/lib/plataforma.ts y repetido como
+-- texto en la landing, el registro y los ajustes: cuatro lugares que se
+-- desincronizaban. Acá hay una sola fuente de verdad y el frontend la lee.
+--
+-- Fila única garantizada por el CHECK (id = true). El precio es público por
+-- definición (se muestra en la landing sin sesión), así que la lectura es
+-- abierta a anon; la escritura es exclusiva del superadmin.
+create table if not exists public.platform_settings (
+  id boolean primary key default true check (id), -- singleton: siempre true
+  plan_price numeric(10,2) not null default 8000 check (plan_price >= 0),
+  updated_at timestamptz not null default now()
+);
+
+-- Siembra de la fila. on conflict para no romper si ya existe con otro precio
+-- (una corrida posterior no debe pisar lo que Supercarga haya configurado).
+insert into public.platform_settings (id, plan_price)
+values (true, 8000)
+on conflict (id) do nothing;
+
+-- ----------------------------------------------------------------------------
 -- ÍNDICES
 -- ----------------------------------------------------------------------------
 create index if not exists idx_bookings_tenant_start on public.bookings (tenant_id, starts_at);
@@ -327,6 +351,8 @@ drop trigger if exists trg_bookings_updated on public.bookings;
 create trigger trg_bookings_updated before update on public.bookings for each row execute function public.set_updated_at();
 drop trigger if exists trg_subscriptions_updated on public.subscriptions;
 create trigger trg_subscriptions_updated before update on public.subscriptions for each row execute function public.set_updated_at();
+drop trigger if exists trg_platform_settings_updated on public.platform_settings;
+create trigger trg_platform_settings_updated before update on public.platform_settings for each row execute function public.set_updated_at();
 
 -- ============================================================================
 -- ROW LEVEL SECURITY (aislamiento multi-tenant)
@@ -344,6 +370,7 @@ alter table public.seller_accounts enable row level security;
 alter table public.reminders enable row level security;
 alter table public.subscriptions enable row level security;
 alter table public.subscription_payments enable row level security;
+alter table public.platform_settings enable row level security;
 
 -- Perfiles: el usuario ve/edita su propio perfil
 drop policy if exists profiles_select on public.profiles;
@@ -487,6 +514,15 @@ create policy subscription_payments_all on public.subscription_payments
 drop policy if exists subscription_payments_all_superadmin on public.subscription_payments;
 create policy subscription_payments_all_superadmin on public.subscription_payments
   for all using (public.is_superadmin()) with check (public.is_superadmin());
+
+-- Configuración de la plataforma: el precio se muestra en la landing sin
+-- sesión, así que se lee sin autenticar. Solo el superadmin puede escribir.
+drop policy if exists platform_settings_select_public on public.platform_settings;
+create policy platform_settings_select_public on public.platform_settings
+  for select to anon, authenticated using (true);
+drop policy if exists platform_settings_update_superadmin on public.platform_settings;
+create policy platform_settings_update_superadmin on public.platform_settings
+  for update to authenticated using (public.is_superadmin()) with check (public.is_superadmin());
 
 -- ----------------------------------------------------------------------------
 -- Trigger automático: al crear un perfil, crea su staff_member por defecto

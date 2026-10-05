@@ -13,11 +13,22 @@
 --   9) timezone en tenants (fix: recordatorios con hora local, no UTC)
 --  10) public_tenant_access y endurecimiento del acceso público/columnas
 --  11) delete_user_data corregido (fix: el email quedaba bloqueado para siempre)
+-- 12) platform_settings (precio del plan Pro editable desde /admin/planes)
+-- 13) La prueba vence a los 7 días y el acceso cae a gratis, no a blocked
 --
 -- Ejecutar DESPUÉS de supabase/schema.sql. Re-ejecutable (idempotente).
--- Los bloques 8, 9 y 10 son correcciones sobre schema.sql y sobre los bloques 3
--- y 4 (onboard_tenant / delete_user_data), pensados para correrlos sobre una
+-- Los bloques 8, 9, 10 y 12 son correcciones sobre schema.sql y sobre los bloques
+-- 3 y 4 (onboard_tenant / delete_user_data), pensados para correrlos sobre una
 -- base ya migrada sin volver a ejecutar todo el archivo.
+--
+-- CAMBIOS QUE REQUIEREN VOLVER A CORRER ESTE ARCHIVO ENTERO sobre una base ya
+-- migrada (es idempotente, se puede pegar de nuevo):
+--   - Bloques 1 y 10: al vencer la prueba el acceso cae a 'gratis' en vez de
+--     'blocked' (ver el detalle en el bloque 10). Afecta a create_public_booking
+--     y public_tenant_access.
+--   - Bloque 3: la prueba del plan Pro pasa de 30 a 7 días. Ojo: esto solo
+--     afecta a los tenants que se den de alta a partir de ahora; a los que ya
+--     tienen trial_ends_at guardado no se les toca.
 -- Todos los comentarios están en español. Bloques separados con -- #####
 -- ============================================================================
 
@@ -106,8 +117,8 @@ begin
   --   status <> active           -> blocked
   --   sub activo                 -> pro
   --   trial vigente              -> pro
-  --   plan 'pro' sin pagar       -> blocked
   --   resto                      -> gratis
+  -- Al vencer la prueba se cae a gratis, no a blocked (ver bloque 13).
   select sub.status into v_sub_status
   from public.subscriptions sub
   where sub.tenant_id = v_tenant.id
@@ -119,8 +130,6 @@ begin
 
   if v_paid or v_trial then
     v_access := 'pro';
-  elsif v_tenant.plan = 'pro' then
-    v_access := 'blocked';
   else
     v_access := 'gratis';
   end if;
@@ -460,18 +469,18 @@ begin
       raise exception 'Ya existe una cuenta con ese email.' using errcode = 'P0001';
   end;
 
-  -- Crea el tenant. Plan "gratis" sin prueba; plan "pro" con 30 días de prueba
+  -- Crea el tenant. Plan "gratis" sin prueba; plan "pro" con 7 días de prueba
   -- (igual que onboardTenant de api.ts).
-  -- trial_ends_at es obligatorio para el plan pro: tenantAccess (api.ts) y el
-  -- chequeo de acceso de este mismo RPC solo dan acceso si la suscripción está
-  -- 'active' O hay trial_ends_at futuro. Sin esta columna, un alta con plan pro
-  -- nacía 'blocked' y el negocio rebotaba a /abonar al primer login.
+  -- trial_ends_at es lo que da acceso Pro durante la prueba: tanto
+  -- tenantAccess (api.ts) como el chequeo de acceso de este RPC dan 'pro' solo si
+  -- la suscripción está 'active' O hay trial_ends_at futuro. Sin esta columna, un
+  -- alta con plan pro nacía sin prueba y caía a gratis de entrada.
   insert into public.tenants (
     id, name, slug, plan, status, primary_color, email, trial_ends_at
   )
   values (
     v_tenant_id, btrim(p_tenant_name), v_slug, v_plan, 'active', '#0f172a', v_email,
-    case when v_plan = 'pro' then now() + interval '30 days' else null end
+    case when v_plan = 'pro' then now() + interval '7 days' else null end
   );
 
   -- Perfil owner (el trigger handle_new_auth_user ya creó uno "pelado" al
@@ -981,7 +990,7 @@ as $$
       limit 1
     ) = 'active' then 'pro'
     when t.trial_ends_at is not null and now() < t.trial_ends_at then 'pro'
-    when t.plan = 'pro' then 'blocked'
+    -- Al vencer la prueba cae a gratis, no a blocked (ver bloque 13).
     else 'gratis'
   end
   from public.tenants t
@@ -1157,3 +1166,91 @@ begin
 end $$;
 
 grant execute on function public.delete_user_data(uuid) to anon, authenticated;
+
+-- ############################################################################
+-- 12. platform_settings: precio del plan Pro editable desde /admin/planes
+-- ############################################################################
+-- El precio estaba hardcodeado en src/lib/plataforma.ts (PLAN_PRICE) y además
+-- repetido como texto en la landing, el registro y los ajustes: cuatro lugares
+-- que se desincronizaban al cambiar el precio. Ahora hay una sola fuente de
+-- verdad en la base y el frontend la lee.
+--
+-- Idempotente: la fila se siembra una vez y `on conflict` no pisa el precio si
+-- Supercarga ya lo configuró. El CHECK (id) mantiene la tabla en una sola fila.
+create table if not exists public.platform_settings (
+  id boolean primary key default true check (id), -- singleton: siempre true
+  plan_price numeric(10,2) not null default 8000 check (plan_price >= 0),
+  updated_at timestamptz not null default now()
+);
+
+insert into public.platform_settings (id, plan_price)
+values (true, 8000)
+on conflict (id) do nothing;
+
+drop trigger if exists trg_platform_settings_updated on public.platform_settings;
+create trigger trg_platform_settings_updated before update on public.platform_settings for each row execute function public.set_updated_at();
+
+alter table public.platform_settings enable row level security;
+
+-- El precio se muestra en la landing sin sesión, así que la lectura es abierta.
+drop policy if exists platform_settings_select_public on public.platform_settings;
+create policy platform_settings_select_public on public.platform_settings
+  for select to anon, authenticated using (true);
+
+-- Escribirlo es solo tarea del superadmin.
+drop policy if exists platform_settings_update_superadmin on public.platform_settings;
+create policy platform_settings_update_superadmin on public.platform_settings
+  for update to authenticated using (public.is_superadmin()) with check (public.is_superadmin());
+
+-- ############################################################################
+-- 13. La prueba vence a los 7 días y el acceso cae a gratis, no a blocked
+-- ############################################################################
+-- Este bloque es un NO-OP de esquema: los cambios ya están aplicados en los
+-- bloques 1, 3 y 10 de este mismo archivo (que es re-ejecutable). Está acá para
+-- dejar documentado el cambio y para el que venga leyendo el historial.
+--
+-- QUÉ CAMBIÓ
+--
+-- Antes la decisión de acceso era:
+--   status <> active      -> blocked
+--   sub activo            -> pro
+--   trial vigente         -> pro
+--   plan = 'pro'          -> blocked   <-- el problema
+--   resto                 -> gratis
+--
+-- O sea que un negocio dado de alta eligiendo Pro quedaba 'blocked' al vencer
+-- la prueba, y create_public_booking / getPublicBookingData devolvían null: la
+-- página pública mostraba "El negocio no está disponible" y el negocio perdía
+-- sus reservas. Mientras que uno dado de alta como 'gratis' seguía operando con
+-- 1 profesional y 10 señas por mes. Al que elegía pagar le iba peor.
+--
+-- Ahora, al vencer la prueba el acceso cae a 'gratis' y la página sigue viva.
+-- El límite de 1 profesional y las 10 señas/mes hacen el resto del trabajo: el
+-- negocio sigue perceptiondo clientes y se da cuenta del resto por el techo.
+-- 'blocked' queda reservado para status <> 'active' (negocio deshabilitado por
+-- el superadmin desde /admin/negocios).
+--
+-- La duración de la prueba pasa de 30 a 7 días. El valor está en el bloque 3
+-- (onboard_tenant) y es el único lugar donde se define.
+--
+-- ALCANCE: el cambio de 30 a 7 días solo aplica a los tenants que se den de
+-- alta de acá en adelante. A los que ya tienen trial_ends_at guardado no se les
+-- toca, porque sus trials ya seveneron o siguen vigentes con el plazo viejo.
+-- Para correrle a los existentes hay que hacerlo a mano:
+--
+--   update public.tenants
+--      set trial_ends_at = now() + interval '7 days'
+--    where trial_ends_at > now();
+--
+-- update public.tenants
+--    set plan = 'gratis'
+--  where plan = 'pro'
+--    and trial_ends_at <= now()
+--    and not exists (
+--      select 1 from public.subscriptions s
+--      where s.tenant_id = tenants.id and s.status = 'active'
+--    );
+--
+-- El segundo update es opcional: con la lógica nueva ya caen a gratis al
+-- vencer la prueba, pero normalizar el plan evita que /panel/ajustes muestre
+-- "plan pro" con trial vencido.

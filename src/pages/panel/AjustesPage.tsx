@@ -6,6 +6,7 @@ import { env } from "@/lib/env";
 import { db, type TenantAccess } from "@/lib/db/api";
 import { useAuth } from "@/lib/auth";
 import { LoadingSpinner } from "@/lib/guards";
+import { usePlanPrice } from "@/lib/planPrice";
 
 type Subscription = Awaited<ReturnType<typeof db.getSubscription>>;
 
@@ -13,6 +14,7 @@ export default function AjustesPage() {
   const { tenant } = useAuth();
   const [subscription, setSubscription] = useState<Subscription>(null);
   const [access, setAccess] = useState<TenantAccess | null>(null);
+  const planPrice = usePlanPrice();
 
   const load = useCallback(async () => {
     if (!tenant) return;
@@ -111,32 +113,38 @@ export default function AjustesPage() {
             )}
             {access === "gratis" && (
               <p className="mt-2 max-w-md text-xs text-slate-500">
-                Estás en el plan Gratis con 1 profesional. Pasá a Pro ($8.000/mes) para
+                Estás en el plan Gratis con 1 profesional. Pasá a Pro ({planPrice}/mes) para
                 profesionales ilimitados, recordatorios por email, señas sin límite y tu marca.
               </p>
             )}
             {access === "blocked" && (
               <p className="mt-2 max-w-md text-xs text-amber-700">
-                Tu prueba venció y el plan no está pago. Tu página dejó de tomar turnos; aboná
-                para reactivarla.
+                Tu negocio está deshabilitado y la página de reservas no está tomando turnos.
+                Escribinos y lo reactivamos.
               </p>
             )}
             {access === "pro" && tenant.plan === "pro" && (
               <p className="mt-2 max-w-md text-xs text-slate-500">
-                Al vencer la prueba se abona el plan Pro ($8.000/mes) para seguir operando.
+                Tu prueba de 7 días termina el{" "}
+                {subscription?.current_period_end
+                  ? new Date(subscription.current_period_end).toLocaleDateString("es-AR")
+                  : "próximos días"}
+                . Después seguís en el plan Gratis: tu página sigue reservando, con 1
+                profesional y hasta 10 señas por mes. Para volver a Pro ({planPrice}/mes),
+                transferinos y lo validamos.
               </p>
             )}
           </div>
-          {access === "blocked" ? (
+          {access === "pro" && tenant.plan === "pro" ? (
             <Link
               to={`/abonar/${tenant.slug}`}
-              className="shrink-0 rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800 transition hover:bg-amber-200"
+              className="shrink-0 rounded-full bg-indigo-600 px-3 py-1 text-xs font-semibold text-white transition hover:bg-indigo-500"
             >
-              Abonar ahora
+              Activar Pro ahora
             </Link>
           ) : (
             <span className="rounded-full bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700">
-              {access === "pro" ? "Pago al vencer la prueba" : "Plan gratuito"}
+              {access === "pro" ? "Plan Pro" : "Plan gratuito"}
             </span>
           )}
         </div>

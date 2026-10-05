@@ -27,6 +27,9 @@ const AdminSuscripcionesPage = lazy(() =>
 const AdminUsuariosPage = lazy(() =>
   import("@/pages/admin/AdminUsuariosPage").then((m) => ({ default: m.AdminUsuariosPage }))
 );
+const AdminPlanesPage = lazy(() =>
+  import("@/pages/admin/AdminPlanesPage").then((m) => ({ default: m.AdminPlanesPage }))
+);
 
 export function App() {
   return (
@@ -76,6 +79,7 @@ export function App() {
             <Route path="pagos" element={<AdminPagosPage />} />
             <Route path="suscripciones" element={<AdminSuscripcionesPage />} />
             <Route path="usuarios" element={<AdminUsuariosPage />} />
+            <Route path="planes" element={<AdminPlanesPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

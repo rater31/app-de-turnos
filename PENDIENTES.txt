@@ -1,7 +1,8 @@
 PENDIENTES — app-de-turnos
-Actualizado: 2026-09-30
-Estado: la migracion SQL ya esta aplicada en produccion (https://pdbapryhmiaohdtwqatd.supabase.co).
-Todo lo de la seccion 1 estaba arreglado en codigo pero falta ejecutar o verificar.
+Actualizado: 2026-10-05
+Estado: produccion en https://pdbapryhmiaohdtwqatd.supabase.co
+Todo lo de la seccion 1 esta arreglado en codigo pero falta ejecutar o verificar.
+Lo de la seccion 2 se aplico en la base el 5-oct; lo de la seccion 5 todavia no.
 
 
 == 1. URGENTE: sigue roto en produccion ==
@@ -31,20 +32,45 @@ Todo lo de la seccion 1 estaba arreglado en codigo pero falta ejecutar o verific
 
 == 3. Deuda tecnica ==
 
-[ ] Comprobantes expiran en 1 ano
-    subscription_payments.receipt_url guarda una signed URL de 365 dias
-    (src/lib/db/api.ts:127 -> 60 * 60 * 24 * 365). Pasado el año el admin no puede
-    ver el comprobante. Guardar solo el path y firmar la URL al leerla.
+[x] ~~Comprobantes expiran en 1 ano~~ — CERRADO
+    Ya no aplica: el TTL paso a 1 hora (src/lib/db/api.ts:76 -> 60 * 60). El
+    pendiente estaba desactualizado.
 
 [ ] MercadoPago no esta integrado
     "mercadopago": "^3.6.0" esta en dependencies pero no se importa en ningun lado.
     El cobro es transferencia manual y un humano valida desde /admin/pagos.
     Cuando se integre (Checkout Pro o Planes), src/lib/plataforma.ts desaparece:
-    los datos pasan a salir de la API.
+    los datos pasan a salir de la API (el precio ya salio, ver seccion 5).
 
 [ ] Prop muerta: subscriptionStatus
-    AbonarPage.tsx:72 se la pasa a AbonarForm pero el form no la usa
-    (declarada en AbonarForm.tsx:13). Sacarla o darle uso.
+    El form dejo de recibirla, pero el campo sigue produciendose en api.ts
+    (PlanPaymentData). Eso obliga a un getSubscription() extra en
+    getPlanPaymentData solo para llenarlo. Sacar el campo del tipo y del return.
+
+[ ] Tipo DB y 10 tipos mas muertos
+    src/lib/db/types.ts define `DB` (mapa de tablas) pero nadie lo usa: api.ts
+    consulta con supabaseClient.from() sin tipar. DB es su unico consumidor, asi
+    que arrastra DBUser, DBService, DBBooking, BookingStatus y 6 mas (~70 lineas).
+    OJO: DBProfile, DBTenant, DBSellerAccount y DBPayment SI estan vivos
+    (api.ts:13, auth.tsx:10); no borrar esos.
+    Macizos: cn y toTimestamp en lib/utils.ts no tienen un solo uso.
+
+[ ] 8 miembros de `db` que nadie llama
+    listSubscriptionPayments, getTenant, getTenantOwner, serviceRequiresDeposit,
+    getSellerAccount, saveSellerAccount, deleteSellerAccount, listPayments.
+    El cluster de seller_accounts es cerrado: su unica arista interna es
+    saveSellerAccount -> getSellerAccount. Si MercadoPago se pospone, borrar el
+    cluster entero.
+
+[ ] El owner no puede cancelar su suscripcion
+    Puede pagar (/abonar) pero no cancelar. La unica via es superadmin desde
+    /admin/suscripciones -> setTenantPlanAccess. Con el trial de 7 dias que cae a
+    Gratis esto pesa menos, pero sigue sin haber salida autonoma.
+
+[ ] No hay auto-cargo al vencer la prueba
+    No hay pasarela, asi que no aplica todavia. El copy ya no lo promete (se
+    cambio el 5-oct), pero cuando se integre Mercado Pago hay que decidir si se
+    cobra en automatico o se sigue avisando.
 
 [ ] Datos bancarios hardcodeados y publicos
     Viven en src/lib/plataforma.ts y viajan en el bundle JS: cualquiera que abra
@@ -70,10 +96,76 @@ Todo lo de la seccion 1 estaba arreglado en codigo pero falta ejecutar o verific
     ni un bug: payments.booking_id es nullable con ON DELETE SET NULL, asi que
     quedan como registro contable cuando el turno se borra. Dejarlos.
 
-[ ] Probar el deploy a GitHub Pages por primera vez
-    deploy.yml recien agregado con validacion de secrets. Nunca corrio un deploy
-    real de la version Vite. La primera vez, mirar que no falle.
+[x] ~~Probar el deploy a GitHub Pages por primera vez~~ — CERRADO
+    No aplica: el deploy es Netlify con build nativo (netlify.toml, publish=out).
+    Nunca existio un workflow de Pages. La carpeta .next/ que quedaba en el repo
+    era de la app Next.js anterior; se borro el 5-oct junto con dist/.
+
+
+== 5. Hecho el 5-oct, pendiente de aplicar ==
+
+[x] Precio del plan editable desde /admin/planes — SQL APLICADO
+    Tabla singleton platform_settings (schema.sql + bloque 12 de migration).
+    Verificado en produccion: plan_price = 8000, y un PATCH con anon key devuelve
+    204 sin cambiar nada (la RLS frena la escritura a no-superadmin).
+    El frontend lo lee via src/lib/planPrice.ts (cache en modulo, con fallback).
+    Los textos "$8.000" que estaban repetidos en landing, registro y ajustes
+    ahora salen de ahi.
+
+[ ] CORRER migration_react.sql ENTERO — LO MAS URGENTE
+    Los cambios del 5-oct viven en los bloques 1, 3 y 10 del archivo:
+      - Bloques 1 y 10: al vencer la prueba el acceso cae a 'gratis' en vez de
+        'blocked'. Antes la pagina publica de un tenant con plan 'pro' devolvia
+        null al vencerse la prueba ("el negocio no esta disponible") y perdia las
+        reservas, mientras que uno con plan 'gratis' seguia operando. Al que
+        elegia pagar le iba peor.
+      - Bloque 3: la prueba pasa de 30 a 7 dias.
+    El archivo es idempotente, se puede pegar de nuevo tal cual. El bloque 13 es
+    solo documentacion, no SQL ejecutable.
+    Verificar despues con scripts/verificar-migracion.sh.
+
+[ ] Acortar el trial de los tenants que ya tienen prueba vigente
+    Los 7 dias solo rigen para altas nuevas; a los que ya tienen trial_ends_at
+    guardado no se les toca. Si se quiere, a mano (bloque 13 los trae commented):
+      update public.tenants set trial_ends_at = now() + interval '7 days'
+       where trial_ends_at > now();
+      update public.tenants set plan = 'gratis'
+       where plan = 'pro' and trial_ends_at <= now()
+         and not exists (select 1 from public.subscriptions s
+                         where s.tenant_id = tenants.id and s.status = 'active');
+
+[ ] Probar el flujo de upgrade real
+    Con el precio ya editable: cambiarlo en /admin/planes, ver que la landing lo
+    muestra al recargar, que /abonar/<slug> muestra el monto nuevo, y que al
+    validar un pago en /admin/pagos el tenant queda pro y con 30 dias de periodo.
 
 [ ] Probar /registro de punta a punta
     No se probo el alta de un negocio desde la UI. Ojo: onboard_tenant crea un
     tenant nuevo, asi que ensucia la base antes de hacerlo.
+
+[ ] Documentacion que miente (sin tocar)
+    REVISION_TECNICA.md tiene 4 afirmaciones falsas: dice que el build conserva
+    "/app-de-turnos/" como base (vite.config.ts dice "/" y explica por que),
+    que se genero un 404.html (no existe; el fallback es public/_redirects),
+    que elimino la config ESLint de Next (estaba commiteada, se borro el 5-oct),
+    y que hay que lanzar un workflow de Pages (no existe: solo esta
+    supabase-reminders.yml, que es manual a proposito).
+    .gitignore todavia tiene restos de Next (/.next/, .vercel, next-env.d.ts):
+    inofensivos, limpian basura que ya no se genera.
+    docs/estructura.md dice que hay una "API central" (no existe: es client-side
+    + RPCs) y que los recordatorios van por "WhatsApp + email" (solo email:
+    migration_react.sql:300 inserta 'email' hardcodeado y la Edge Function filtra
+    por channel = 'email'). Le falta platform_settings en el modelo de datos.
+    README.md y docs/estructura.md dicen "copiar .env.example", que no existe.
+
+[ ] supabase/seed.mjs esta muerto
+    Lee NEXT_PUBLIC_* (la SPA usa VITE_*), pide un .env.local.example que no
+    existe, y depende de data/db.json, que esta gitignored y tiene datos
+    personales reales adentro (un email, un telefono y un password_hash).
+    No se puede ejecutar. Borrarlo o reescribirlo; deciding antes que pasa con
+    data/db.json.
+
+[ ] supabase/cleanup_pruebas.sql es un script destructivo one-off ya ejecutado
+    Esta hardcodeado a una ventana de 12 h y aborta si el conteo no da
+    exactamente 4 reservas. Re-correrlo hoy no borra nada, pero si alguien lo
+    pega a ciegas en el SQL Editor de produccion es un riesgo. Archivar.

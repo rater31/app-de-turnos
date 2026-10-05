@@ -1,6 +1,6 @@
 import { supabaseClient } from "@/lib/supabase/client";
 import { slugify, isReservedSlug } from "@/lib/utils";
-import { PLAN_BANK, PLAN_PRICE } from "@/lib/plataforma";
+import { PLAN_BANK, PLAN_PRICE_FALLBACK } from "@/lib/plataforma";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type {
   BookingRow,
@@ -50,8 +50,15 @@ function dbTenant(t: any): DBTenant | null {
 
 // ---------------------------------------------------------------------------
 // Acceso por plan: "pro" (pago o con prueba vigente), "gratis" (plan gratuito,
-// 1 profesional, sin funciones Pro) o "blocked" (negocio deshabilitado o plan
-// Pro sin pago con la prueba vencida). Misma lógica que RPC create_public_booking.
+// 1 profesional, sin funciones Pro) o "blocked" (negocio deshabilitado por el
+// superadmin). Misma lógica que RPC create_public_booking.
+//
+// Al vencer la prueba el negocio CAE A GRATIS, no a blocked. Antes, un tenant
+// registrado con plan 'pro' quedaba 'blocked' al vencer su trial y su página
+// pública devolvía null ("el negocio no está disponible"), mientras que uno
+// registrado como 'gratis' seguía operando con 1 profesional y 10 señas/mes. Es
+// decir: al que elegía pagar le iba peor. Caer a gratis deja viva la página de
+// reservas y el límite de 1 profesional + 10 señas hace el resto del trabajo.
 // ---------------------------------------------------------------------------
 
 export type TenantAccess = "pro" | "gratis" | "blocked";
@@ -68,7 +75,6 @@ export function tenantAccess(
     tenant.trial_ends_at !== "" &&
     new Date(tenant.trial_ends_at).getTime() > Date.now();
   if (trialActive) return "pro";
-  if (tenant.plan === "pro") return "blocked";
   return "gratis";
 }
 
@@ -783,6 +789,32 @@ export async function deleteAdminUser(
 }
 
 // ---------------------------------------------------------------------------
+// Configuración de la plataforma (precio del plan Pro)
+// ---------------------------------------------------------------------------
+// El precio vive en `platform_settings` (singleton) y lo edita el superadmin en
+// /admin/planes. Antes estaba en PLAN_PRICE, hardcodeado, y repetido como texto
+// en cuatro pantallas.
+
+export async function getPlanPrice(): Promise<number> {
+  const { data } = await supabaseClient
+    .from("platform_settings")
+    .select("plan_price")
+    .maybeSingle();
+  if (data?.plan_price == null) return PLAN_PRICE_FALLBACK;
+  return Number(data.plan_price);
+}
+
+// Superadmin: actualiza el precio del plan Pro. La RLS de
+// platform_settings bloquea a cualquiera que no sea superadmin.
+export async function setPlanPrice(amount: number) {
+  const { error } = await supabaseClient
+    .from("platform_settings")
+    .update({ plan_price: amount })
+    .eq("id", true);
+  if (error) throw new Error(error.message);
+}
+
+// ---------------------------------------------------------------------------
 // Pagos de suscripción (plan) - transferencia manual + comprobante
 // ---------------------------------------------------------------------------
 
@@ -832,7 +864,7 @@ export async function createSubscriptionPayment(input: {
   const { error } = await supabaseClient.from("subscription_payments").insert({
     tenant_id: tenant.id,
     subscription_id: sub?.id ?? null,
-    amount: PLAN_PRICE,
+    amount: await getPlanPrice(),
     status: "pending",
     receipt_url: receiptUrl,
     period_start: input.periodStart ?? null,
@@ -935,7 +967,7 @@ export async function setSubscriptionStatus(tenantId: string, status: string, pe
   await supabaseClient.from("subscriptions").update(upd).eq("id", sub.id);
 }
 
-// Superadmin: pasa un negocio de plan Free a Premium (o viceversa).
+// Superadmin: pasa un negocio de plan Gratis a Pro (o viceversa).
 export async function setTenantPlanAccess(tenantId: string, plan: "pro" | "gratis") {
   const { data: sub } = await supabaseClient
     .from("subscriptions")
@@ -1191,7 +1223,10 @@ export async function getPlanPaymentData(slug: string): Promise<PlanPaymentData 
     .maybeSingle();
   if (!tenant) return null;
 
-  const sub = await getSubscription(tenant.id);
+  const [sub, planPrice] = await Promise.all([
+    getSubscription(tenant.id),
+    getPlanPrice(),
+  ]);
 
   return {
     tenantName: tenant.name,
@@ -1199,7 +1234,7 @@ export async function getPlanPaymentData(slug: string): Promise<PlanPaymentData 
     plan: sub?.plan ?? tenant.plan ?? "pro",
     subscriptionStatus: sub?.status ?? "trial",
     currentPeriodEnd: sub?.current_period_end ?? null,
-    amount: PLAN_PRICE,
+    amount: planPrice,
     bank: PLAN_BANK,
   };
 }
@@ -1587,6 +1622,8 @@ export const db = {
   setSubscriptionPaymentStatus,
   setSubscriptionStatus,
   setTenantPlanAccess,
+  getPlanPrice,
+  setPlanPrice,
   listAdminUsers,
   setUserRole,
   deleteAdminUser,

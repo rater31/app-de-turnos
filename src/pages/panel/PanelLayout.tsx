@@ -42,14 +42,8 @@ export default function PanelLayout() {
         <div className="flex-1 overflow-x-hidden">
           {effective === "blocked" && (
             <div className="border-b border-amber-200 bg-amber-50 px-6 py-3 text-sm text-amber-800">
-              Tu prueba de 30 días venció. Para volver a tomar turnos, aboná el plan Pro y
-              reactivalo.{" "}
-              <Link
-                to={`/abonar/${tenant.slug}`}
-                className="font-semibold text-amber-900 underline"
-              >
-                Abonar ahora
-              </Link>
+              Tu negocio está deshabilitado y la página de reservas no está tomando
+              turnos. Escribinos y lo reactivamos.
             </div>
           )}
           <header className="flex h-16 items-center justify-between border-b border-slate-200 bg-white px-6">
@@ -88,7 +82,7 @@ export default function PanelLayout() {
                 ★
               </span>
             </span>
-            Actualizar a Premium
+            Pasar a Pro
           </Link>
         )}
       </div>
