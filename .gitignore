@@ -13,12 +13,26 @@
 # testing
 /coverage
 
-# next.js
-/.next/
+# build de Vite (netlify.toml publica out/)
 /out/
 
 # production
+# Ojo: la app NO es Next.js, el build va a out/ (vite.config.ts -> build.outDir).
+# Estas entradas limpian restos de la app Next.js anterior; /dist evita que un
+# build viejo, que nadie produce ya, vuelva a commitarse.
+/.next/
 /build
+/dist
+next-env.d.ts
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+
+# cache de herramientas locales
+.kombai/
 
 # misc
 .DS_Store
@@ -33,13 +47,6 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 !.env.example
-
-# vercel
-.vercel
-
-# typescript
-*.tsbuildinfo
-next-env.d.ts
 
 # local data mock
 /data/db.json
