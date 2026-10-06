@@ -12,7 +12,7 @@
 --   8) prevent_overlap corregido (fix: confirmar turno fallaba siempre)
 --   9) timezone en tenants (fix: recordatorios con hora local, no UTC)
 --  10) public_tenant_access y endurecimiento del acceso público/columnas
---  11) delete_user_data corregido (fix: el email quedaba bloqueado para siempre)
+--  11) (retirado) la corrección de delete_user_data quedó en el bloque 4
 -- 12) platform_settings (precio del plan Pro editable desde /admin/planes)
 -- 13) La prueba vence a los 7 días y el acceso cae a gratis, no a blocked
 --
@@ -29,6 +29,11 @@
 --   - Bloque 3: la prueba del plan Pro pasa de 30 a 7 días. Ojo: esto solo
 --     afecta a los tenants que se den de alta a partir de ahora; a los que ya
 --     tienen trial_ends_at guardado no se les toca.
+--   - Bloque 4: delete_user_data ya no borra Storage (Supabase lo prohíbe con
+--     "Direct deletion from storage tables is not allowed" y eso abortaba toda
+--     la transacción, dejando el usuario y el negocio sin borrar) y devuelve
+--     los auth_user_ids para que la Edge Function delete-business los borre.
+--     No hace falta revertir el bloque 11: está retirado.
 -- Todos los comentarios están en español. Bloques separados con -- #####
 -- ============================================================================
 
@@ -527,11 +532,15 @@ grant execute on function public.onboard_tenant(text, text, text, text, text, te
 -- Borra el perfil del usuario y todos los datos del tenant al que pertenece
 -- (clients, bookings, payments, reminders, staff_members, services,
 -- service_staff, subscriptions, seller_accounts, business_hours,
--- subscription_payments, tenants y storage de logos/comprobantes).
--- NO borra el usuario de Auth (queda huérfano) — OJO: eso está corregido en el
--- bloque 11, que redefine esta función para borrar también auth.users. La
--- versión de abajo queda pisada por el bloque 11 al final del archivo; se
--- mantiene como está para que el archivo sea legible de arriba abajo.
+-- subscription_payments y el tenant).
+--
+-- NO borra archivos de Storage ni usuarios de Auth: ambos requieren la
+-- service_role y los hace la Edge Function "delete-business" (que también es la
+-- que invoca este RPC). Antes esta función hacía `delete from storage.objects`
+-- y Supabase lo rechaza con "Direct deletion from storage tables is not
+-- allowed", lo que abortaba la transacción completa y dejaba el usuario y el
+-- negocio sin borrar.
+--
 -- Solo puede invocarla el dueño del tenant del usuario o un superadmin.
 create or replace function public.delete_user_data(p_user_id uuid)
 returns jsonb
@@ -543,9 +552,8 @@ declare
   v_caller uuid := auth.uid();
   v_caller_super boolean;
   v_target_tenant uuid;
-  v_target_role text;
   v_slug text;
-  v_tenant_id_text text;
+  v_auth_ids jsonb;
 begin
   if v_caller is null then
     raise exception 'No autorizado.' using errcode = '42501';
@@ -575,6 +583,14 @@ begin
   if v_target_tenant is not null then
     select slug into v_slug from public.tenants where id = v_target_tenant;
 
+    -- Ids de Auth de TODAS las cuentas del tenant (owner + staff). Se devuelven
+    -- para que la Edge Function las borre de auth.users: desde la SPA con anon
+    -- key no se puede, y sin esto el email queda bloqueado para siempre porque
+    -- onboard_tenant rechaza emails que ya existen en auth.users.
+    select coalesce(jsonb_agg(p.id), '[]'::jsonb) into v_auth_ids
+    from public.profiles p
+    where p.tenant_id = v_target_tenant;
+
     delete from public.subscription_payments where tenant_id = v_target_tenant;
     delete from public.payments where tenant_id = v_target_tenant;
     delete from public.reminders where tenant_id = v_target_tenant;
@@ -591,28 +607,28 @@ begin
     delete from public.seller_accounts where tenant_id = v_target_tenant;
     delete from public.subscriptions where tenant_id = v_target_tenant;
     delete from public.profiles where tenant_id = v_target_tenant;
-
-    -- Storage: logos (path con tenant_id) y comprobantes (path con tenant_id o slug)
-    v_tenant_id_text := v_target_tenant::text;
-    delete from storage.objects
-    where bucket_id = 'logos'
-      and (storage.foldername(name))[1] = v_tenant_id_text;
-    delete from storage.objects
-    where bucket_id = 'comprobantes'
-      and ((storage.foldername(name))[1] = v_tenant_id_text or (storage.foldername(name))[1] = v_slug);
-
     delete from public.tenants where id = v_target_tenant;
+
+    return jsonb_build_object(
+      'ok', true,
+      'tenant_id', v_target_tenant,
+      'slug', v_slug,
+      'auth_user_ids', v_auth_ids
+    );
   else
     -- Superadmin global sin tenant: solo se borra el perfil.
     delete from public.profiles where id = p_user_id;
-  end if;
 
-  return jsonb_build_object('ok', true);
+    return jsonb_build_object(
+      'ok', true,
+      'tenant_id', null,
+      'slug', null,
+      'auth_user_ids', jsonb_build_array(p_user_id)
+    );
+  end if;
 end $$;
 
 grant execute on function public.delete_user_data(uuid) to anon, authenticated;
-
--- ############################################################################
 -- 5. RLS: escritura client-side (-- REACT-MIGRATION)
 -- ############################################################################
 -- El alta pública de reservas pasa por create_public_booking (SECURITY
@@ -1065,107 +1081,30 @@ create policy service_staff_select_public on public.service_staff
     )
   );
 -- ############################################################################
--- 11. Fix delete_user_data: el usuario de Auth quedaba huérfano
+-- 11. (retirado) el fix de auth.users quedó en el bloque 4
 -- ############################################################################
--- El bloque 4 borra el perfil y todos los datos del tenant, pero dejaba la fila
--- en auth.users a propósito. Eso dejaba el email inutilizable para siempre:
+-- Antes este bloque redefinía delete_user_data para borrar también la fila de
+-- auth.users, porque sin eso el email quedaba inutilizable para siempre:
 -- onboard_tenant valida la unicidad contra auth.users (no contra profiles), así
--- que volver a registrarse fallaba con "Ya existe una cuenta con ese email"; y
--- al mismo tiempo el usuario tampoco podía iniciar sesión, porque su perfil ya
--- no existía. No había ninguna ruta de recuperación de la cuenta.
--- Ahora además se borra la fila de auth.users. profiles.id la referencia con
--- on delete cascade, así que cualquier perfil que sobre cae solo.
+-- que volver a registrarse fallaba con "Ya existe una cuenta con ese email",
+-- mientras el usuario tampoco podía iniciar sesión porque su perfil ya no
+-- existía. No había ninguna ruta de recuperación de la cuenta.
 --
--- Solo se borra la de p_user_id, no las de los demás perfiles del tenant: los
--- usuarios de Auth del staff también quedan huérfanos (no pueden entrar porque
--- su perfil se fue) pero liberarlos permitiría que otro reclame ese email.
+-- La definición vive AHORA SOLO en el bloque 4. Estaba duplicada acá y eso era
+-- un problema real: el archivo se aplica de arriba abajo, así que esta segunda
+-- definición pisaba la del bloque 4 y el borrado seguía roto. Si se editaba el
+-- bloque 4 y no se tocaba este, el arreglo se perdía en silencio.
 --
--- Es un `create or replace`, así que alcanza con correr este bloque sobre la
--- base ya migrada. Ojo: las cuentas huérfanas que quedaron de borrados
--- anteriores NO se reparan solas; hay que borrarlas a mano, por ejemplo con
--- `delete from auth.users u where not exists (select 1 from public.profiles p
--- where p.id = u.id) and u.email = 'ejemplo@correo.com';`
-create or replace function public.delete_user_data(p_user_id uuid)
-returns jsonb
-language plpgsql
-security definer
-set search_path = public, pg_temp
-as $$
-declare
-  v_caller uuid := auth.uid();
-  v_caller_super boolean;
-  v_target_tenant uuid;
-  v_slug text;
-  v_tenant_id_text text;
-begin
-  if v_caller is null then
-    raise exception 'No autorizado.' using errcode = '42501';
-  end if;
-
-  -- Chequeo: solo el dueño del tenant o un superadmin
-  select coalesce((select role = 'superadmin' from public.profiles where id = v_caller), false)
-  into v_caller_super;
-
-  if not v_caller_super then
-    select tenant_id into v_target_tenant from public.profiles where id = p_user_id;
-    if v_target_tenant is null then
-      raise exception 'Solo un superadmin puede borrar este usuario.' using errcode = '42501';
-    end if;
-    if not exists (
-      select 1 from public.profiles p
-      where p.id = v_caller
-        and p.tenant_id = v_target_tenant
-        and p.role = 'owner'
-    ) then
-      raise exception 'Solo el dueño del negocio o un superadmin puede borrar estos datos.' using errcode = '42501';
-    end if;
-  end if;
-
-  select tenant_id into v_target_tenant from public.profiles where id = p_user_id;
-
-  if v_target_tenant is not null then
-    select slug into v_slug from public.tenants where id = v_target_tenant;
-
-    delete from public.subscription_payments where tenant_id = v_target_tenant;
-    delete from public.payments where tenant_id = v_target_tenant;
-    delete from public.reminders where tenant_id = v_target_tenant;
-    delete from public.bookings where tenant_id = v_target_tenant;
-    delete from public.clients where tenant_id = v_target_tenant;
-    delete from public.service_staff ss
-    where exists (
-      select 1 from public.services s
-      where s.id = ss.service_id and s.tenant_id = v_target_tenant
-    );
-    delete from public.services where tenant_id = v_target_tenant;
-    delete from public.staff_members where tenant_id = v_target_tenant;
-    delete from public.business_hours where tenant_id = v_target_tenant;
-    delete from public.seller_accounts where tenant_id = v_target_tenant;
-    delete from public.subscriptions where tenant_id = v_target_tenant;
-    delete from public.profiles where tenant_id = v_target_tenant;
-
-    -- Storage: logos (path con tenant_id) y comprobantes (path con tenant_id o slug)
-    v_tenant_id_text := v_target_tenant::text;
-    delete from storage.objects
-    where bucket_id = 'logos'
-      and (storage.foldername(name))[1] = v_tenant_id_text;
-    delete from storage.objects
-    where bucket_id = 'comprobantes'
-      and ((storage.foldername(name))[1] = v_tenant_id_text or (storage.foldername(name))[1] = v_slug);
-
-    delete from public.tenants where id = v_target_tenant;
-  else
-    -- Superadmin global sin tenant: solo se borra el perfil.
-    delete from public.profiles where id = p_user_id;
-  end if;
-
-  -- Borra el usuario de Auth del objetivo. Es lo que liberaba el email: sin
-  -- esto el registro del mismo correo volvía a fallar siempre.
-  delete from auth.users where id = p_user_id;
-
-  return jsonb_build_object('ok', true);
-end $$;
-
-grant execute on function public.delete_user_data(uuid) to anon, authenticated;
+-- Quién borra auth.users ahora: la Edge Function delete-business, con la
+-- service_role, usando auth.admin.deleteUser sobre los auth_user_ids que
+-- devuelve el bloque 4. Así también se liberan los emails del staff, no solo
+-- el del owner.
+--
+-- Las cuentas huérfanas de borrados anteriores NO se reparan solas; hay que
+-- borrarlas a mano, por ejemplo con:
+--   delete from auth.users u
+--    where not exists (select 1 from public.profiles p where p.id = u.id)
+--      and u.email = 'ejemplo@correo.com';
 
 -- ############################################################################
 -- 12. platform_settings: precio del plan Pro editable desde /admin/planes

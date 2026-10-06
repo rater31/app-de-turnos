@@ -50,3 +50,6 @@ yarn-error.log*
 
 # local data mock
 /data/db.json
+
+# supabase CLI (lo genera `supabase link`; son refs locales del proyecto)
+/supabase/.temp/

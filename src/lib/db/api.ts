@@ -774,18 +774,112 @@ export async function setUserRole(userId: string, role: "owner" | "superadmin") 
   await supabaseClient.from("profiles").update({ role }).eq("id", userId);
 }
 
-// Borra los datos del usuario y de su tenant (RPC SECURITY DEFINER). Solo el
-// dueño del tenant o un superadmin pueden invocarlo. El RPC también borra el
-// usuario de Supabase Auth del objetivo, para liberar el email y que la cuenta
-// se pueda volver a crear.
-export async function deleteAdminUser(
-  userId: string,
-): Promise<{ ok: true } | { ok: false; message: string }> {
-  const { data, error } = await supabaseClient.rpc("delete_user_data", { p_user_id: userId });
-  if (error || !data) {
-    return { ok: false, message: error?.message ?? "No se pudo eliminar el usuario." };
+// -----------------------------------------------------------------------
+// Baja definitiva de un negocio (admin/usuarios)
+// -----------------------------------------------------------------------
+// Cuenta qué se pierde antes de confirmar, para que el modal de borrado pueda
+// mostrar el impacto real en vez de un texto genérico.
+export type AdminDeleteImpact = {
+  tenantName: string | null;
+  tenantSlug: string | null;
+  accounts: number;
+  clients: number;
+  bookings: number;
+  staff: number;
+  services: number;
+  payments: number;
+};
+
+export async function getAdminDeleteImpact(userId: string): Promise<AdminDeleteImpact> {
+  const { data: profile } = await supabaseClient
+    .from("profiles")
+    .select("tenant_id")
+    .eq("id", userId)
+    .maybeSingle();
+
+  const tenantId: string | null = profile?.tenant_id ?? null;
+  const empty: AdminDeleteImpact = {
+    tenantName: null,
+    tenantSlug: null,
+    accounts: 1,
+    clients: 0,
+    bookings: 0,
+    staff: 0,
+    services: 0,
+    payments: 0,
+  };
+  if (!tenantId) return empty;
+
+  const { data: tenant } = await supabaseClient
+    .from("tenants")
+    .select("name, slug")
+    .eq("id", tenantId)
+    .maybeSingle();
+
+  // count: "exact" con head:true hace el COUNT en la base y no baja filas.
+  const countOf = async (table: string) => {
+    const { count } = await supabaseClient
+      .from(table)
+      .select("id", { count: "exact", head: true })
+      .eq("tenant_id", tenantId);
+    return count ?? 0;
+  };
+
+  const [accounts, clients, bookings, staff, services, payments] = await Promise.all([
+    countOf("profiles"),
+    countOf("clients"),
+    countOf("bookings"),
+    countOf("staff_members"),
+    countOf("services"),
+    // Pagos de reservas (señas) y de suscripciones juntos: son los que le
+    // importan al admin desde el punto de vista contable.
+    countOf("payments").then(async (n) => n + (await countOf("subscription_payments"))),
+  ]);
+
+  return {
+    tenantName: tenant?.name ?? null,
+    tenantSlug: tenant?.slug ?? null,
+    accounts,
+    clients,
+    bookings,
+    staff,
+    services,
+    payments,
+  };
+}
+
+// Borra el negocio entero y todas sus cuentas, incluidos los archivos de
+// Storage y los usuarios de Supabase Auth. Pasa por la Edge Function
+// "delete-business" porque esas dos cosas necesitan la service_role; el RPC
+// delete_user_data solo alcanza para la base (y además exige superadmin).
+export type DeleteAdminUserResult =
+  | { ok: true; warning: string | null }
+  | { ok: false; message: string };
+
+export async function deleteAdminUser(userId: string): Promise<DeleteAdminUserResult> {
+  const { data, error } = await supabaseClient.functions.invoke("delete-business", {
+    body: { user_id: userId },
+  });
+
+  if (error) {
+    return { ok: false, message: error.message };
   }
-  return { ok: true };
+  if (!data?.ok) {
+    return { ok: false, message: data?.error ?? "No se pudo eliminar el usuario." };
+  }
+
+  // La Edge Function borra la base primero y después storage y auth, así que el
+  // negocio ya está dado de baja aunque esas dos tareas hayan fallado: quedan
+  // archivos huérfanos o emails sin liberar. Es un ok con aviso, no un error, para
+  // que la página refresque la lista y el admin vea que el borrado sí ocurrió.
+  const warnings: string[] = Array.isArray(data.warnings) ? data.warnings : [];
+  return {
+    ok: true,
+    warning:
+      warnings.length > 0
+        ? `Negocio eliminado, pero quedaron ${warnings.length} tareas de limpieza pendientes (revisa los logs de la función delete-business).`
+        : null,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -1626,6 +1720,7 @@ export const db = {
   setPlanPrice,
   listAdminUsers,
   setUserRole,
+  getAdminDeleteImpact,
   deleteAdminUser,
   listAdminPayments,
   listAdminSubscriptions,

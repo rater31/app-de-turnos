@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { db } from "@/lib/db/api";
 import { useAuth } from "@/lib/auth";
+import { DeleteUserModal } from "@/components/admin/DeleteUserModal";
 
 type AdminUser = Awaited<ReturnType<typeof db.listAdminUsers>>[number];
 
@@ -9,6 +10,8 @@ export function AdminUsuariosPage() {
   const [users, setUsers] = useState<AdminUser[] | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
+  const [targetToDelete, setTargetToDelete] = useState<AdminUser | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -38,28 +41,27 @@ export function AdminUsuariosPage() {
     }
   }
 
-  async function borrar(target: AdminUser) {
-    if (
-      !window.confirm(
-        `¿Eliminar a ${target.email ?? target.full_name ?? "este usuario"} y su negocio?`,
-      )
-    ) {
-      return;
-    }
-    setPendingId(target.id);
+  // El borrado real vive en DeleteUserModal: pide escribir ELIMINAR y muestra
+  // el impacto (turnos, clientes, pagos) antes de tocar nada.
+  function askDelete(target: AdminUser) {
     setError(null);
+    setWarning(null);
+    setTargetToDelete(target);
+  }
+
+  async function refresh() {
+    setUsers(await db.listAdminUsers());
+  }
+
+  async function onDeleted(deletedWarning: string | null) {
+    setTargetToDelete(null);
     try {
-      const result = await db.deleteAdminUser(target.id);
-      if (!result.ok) {
-        setError(result.message);
-        return;
-      }
-      setUsers(await db.listAdminUsers());
+      await refresh();
     } catch {
-      setError("No se pudo eliminar el usuario.");
-    } finally {
-      setPendingId(null);
+      // El borrado sí ocurrió; si el listado falla, el error alcanza.
+      setError("El negocio se eliminó, pero no se pudo refrescar la lista.");
     }
+    setWarning(deletedWarning);
   }
 
   return (
@@ -68,12 +70,17 @@ export function AdminUsuariosPage() {
         <h1 className="text-xl font-bold text-slate-900">Usuarios</h1>
         <p className="text-sm text-slate-500">
           {users?.length ?? 0} usuario{(users?.length ?? 0) === 1 ? "" : "s"}. Podés cambiar el
-          rol de cada cuenta o eliminarla junto con su negocio.
+          rol de cada cuenta o eliminarla junto con su negocio. Eliminar borra
+          todo lo del negocio (turnos, clientes, pagos y archivos) y no se puede
+          deshacer.
         </p>
       </div>
 
       {error && (
         <p className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p>
+      )}
+      {warning && (
+        <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">{warning}</p>
       )}
 
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
@@ -85,7 +92,7 @@ export function AdminUsuariosPage() {
               currentUserId={user?.id ?? ""}
               pendingId={pendingId}
               onToggle={toggleRole}
-              onBorrar={borrar}
+              onBorrar={askDelete}
             />
           ))}
           {users && users.length === 0 ? (
@@ -93,6 +100,13 @@ export function AdminUsuariosPage() {
           ) : null}
         </div>
       </div>
+
+      <DeleteUserModal
+        open={targetToDelete !== null}
+        user={targetToDelete}
+        onClose={() => setTargetToDelete(null)}
+        onDeleted={onDeleted}
+      />
     </div>
   );
 }
@@ -147,11 +161,11 @@ function UserRow({
         <button
           type="button"
           onClick={() => onBorrar(userRow)}
-          disabled={pending || isSelf}
+          disabled={isSelf}
           title={isSelf ? "No podés eliminar tu propia cuenta" : "Eliminar usuario y negocio"}
           className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-rose-300 hover:bg-rose-50 hover:text-rose-700 disabled:opacity-60"
         >
-          {pending ? "…" : "Eliminar"}
+          Eliminar
         </button>
       </div>
     </div>

@@ -63,6 +63,18 @@ registro y los ajustes.
 
 ## Secrets a configurar en Supabase
 
+**Edge Function `delete-business`** (`supabase functions deploy delete-business`):
+no necesita secrets propios. Usa `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` y
+`SUPABASE_ANON_KEY`, que Supabase inyecta solas en las funciones. Recibe
+`{ user_id }`, valida que quien llame sea superadmin (con el JWT del admin) y
+borra en este orden: datos vía el RPC `delete_user_data`, archivos de Storage
+vía la Storage API (`logos/<tenant_id>/`, `comprobantes/<tenant_id>/`,
+`comprobantes/<slug>/`) y por último las cuentas de `auth.users`.
+
+La base se borra antes que Storage a propósito: si Storage falla, el negocio ya
+está dado de baja y solo quedan archivos huérfanos, que es un mal menor. Al
+revés, quedaría un negocio sin comprobantes pero con reservas.
+
 **Edge Function `reminders`** (`supabase functions deploy reminders` y luego
 `supabase secrets set ...`):
 
@@ -114,9 +126,15 @@ Con `@supabase/supabase-js` (cliente básico, anon key, sin service role):
 - **Panel (owner/staff autenticado):** `select/insert/update` directos sobre las
   tablas del tenant gracias a las policies `-- REACT-MIGRATION`; el logo se sube a
   `logos/<tenant_id>/logo.ext`.
-- **Borrar mi negocio:** `rpc('delete_user_data', { p_user_id })` (solo owner del
-  tenant o superadmin). Borra también el usuario de Auth del objetivo, así que su
-  email queda libre para volver a registrarse.
+- **Borrar un negocio desde el admin:** `functions.invoke('delete-business', {
+   body: { user_id } })`. La SPA **no** llama directo a `delete_user_data`:
+   ese RPC borra solo la base, y ni Storage ni `auth.users` se pueden tocar con
+   la anon key (Supabase rechaza el DML sobre `storage.objects` con "Direct
+   deletion from storage tables is not allowed", que además abortaba la
+   transacción completa y dejaba el usuario y el negocio sin borrar). El RPC
+   devuelve `auth_user_ids` para que la función los borre: sin eso el email
+   queda bloqueado para siempre, porque `onboard_tenant` rechaza emails que ya
+   existen en `auth.users`.
 - **Superadmin:** policies `all_superadmin_react` en `profiles` para gestionar
   usuarios; el resto de tablas de administración ya tenían policies superadmin en
   `schema.sql`.

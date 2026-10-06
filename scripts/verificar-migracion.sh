@@ -6,18 +6,30 @@
 # Sale con 1 si falta algo. Usa VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY de
 # .env.local.
 #
-# Cómo sejuzga cada cosa: cuando una función o columna no existe, PostgREST y
-# PostgSQL responden con un error de catálogo (PGRST202, o "does not exist" en
-# la columna). Un error de negocio (P0001, "no encontramos el tenant") en
-# cambio significa que la función EXISTE y el error viene de adentro.
+# Cómo se juzga cada cosa: cuando una función o columna no existe, PostgREST
+# responde con un error de catálogo (PGRST202, o "does not exist" en la columna).
+# Un error de negocio (P0001, "no encontramos el tenant") o de permisos (42501)
+# en cambio significa que la función o columna EXISTE y el error viene de
+# adentro, así que no cuenta como faltante.
+#
+# En Windows: usar el bash de Git ("C:\Program Files\Git\bin\bash.exe"), no el
+# bash.exe de WSL, que da error si no hay distro instalada.
 set -uo pipefail
 
 cd "$(dirname "$0")/.."
 [ -f .env.local ] || { echo "falta .env.local"; exit 1; }
-set -a; . ./.env.local; set +a
 
-URL="${VITE_SUPABASE_URL:?falta VITE_SUPABASE_URL}"
-KEY="${VITE_SUPABASE_ANON_KEY:?falta VITE_SUPABASE_ANON_KEY}"
+# NO se hace "source .env.local": los .env admiten placeholders entre < > (ej.
+# VITE_APP_URL=https://<tu-dominio>/) y bash los interpreta como redirección y
+# aborta. Se leen solo las dos variables que hacen falta.
+envval() { sed -n "s/^$1[[:space:]]*=[[:space:]]*//p" .env.local | head -n 1; }
+
+URL="$(envval VITE_SUPABASE_URL)"
+KEY="$(envval VITE_SUPABASE_ANON_KEY)"
+[ -n "$URL" ]  || { echo "falta VITE_SUPABASE_URL en .env.local"; exit 1; }
+[ -n "$KEY" ] || { echo "falta VITE_SUPABASE_ANON_KEY en .env.local"; exit 1; }
+URL="${URL%\"}"; URL="${URL#\"}"
+KEY="${KEY%\"}";  KEY="${KEY#\"}"
 RPC="$URL/rest/v1/rpc"
 
 fails=0
@@ -76,11 +88,26 @@ for b in logos comprobantes; do
 done
 
 echo
-echo "Bloques 8 y 9 (fixes de esta sesión)"
-ausentes "$(get '/rest/v1/tenants?select=timezone&limit=1')" "does not exist" "tenants.timezone"
+echo "Columnas agregadas por la migración"
+# tenants.timezone no está en la lista de columnas que migration_react.sql
+# concede a anon/authenticated (bloque 10), así que pedirla da 42501
+# "permission denied" aunque la columna exista. Por eso el chequeo tiene que
+# distinguir los dos errores: "does not exist" = la migración no corrió;
+# "permission denied" = la columna está y el grant la excluye a propósito.
+tz=$(get '/rest/v1/tenants?select=timezone&limit=1')
+case "$tz" in
+  *"does not exist"*)
+    fail "tenants.timezone (no existe: falta aplicar la migración)" ;;
+  *"permission denied"*)
+    ok "tenants.timezone (existe, sin grant para anon: correcto)" ;;
+  *)
+    ok "tenants.timezone" ;;
+esac
 
 echo
 echo "Estado de los tenants (solo lectura)"
+# La policy tenants_select_public es using (status = 'active'), así que esto solo
+# ve los activos: es exactamente lo que puede reservar un cliente sin sesión.
 t=$(get '/rest/v1/tenants?select=slug,plan,trial_ends_at,status&limit=20')
 echo "$t" | head -c 700
 echo
@@ -89,10 +116,29 @@ if [[ "$t" =~ plan..pro.*trial_ends_at..null ]]; then
 else
   ok "ningún tenant pro sin trial_ends_at"
 fi
+# Una lista vacía NO es un resultado válido en producción: significa que no queda
+# ningún negocio activo y el sitio no tiene nada que ofrecer. Se avisa aparte
+# porque no lo arregla correr la migración.
+if [ "$(printf '%s' "$t" | tr -d '[:space:]')" = "[]" ]; then
+  fail "no hay NINGÚN tenant activo (la web pública no muestra nada). Revisar a mano: select slug, status from public.tenants;"
+fi
+
+echo
+echo "Lo que este script NO puede verificar"
+cat <<'NOTA'
+- Que delete_user_data ya no haga "delete from storage.objects". El RPC corta
+  antes (42501 No autorizado) con la anon key, así que su cuerpo no se puede
+  inspeccionar por REST. Pegar en el SQL Editor:
+    select prosrc from pg_proc where proname = 'delete_user_data';
+  No debe aparecer "storage.objects".
+- Si la Edge Function delete-business está desplegada (ver supabase/README_sql.md).
+NOTA
 
 echo
 if [ "$fails" -gt 0 ]; then
-  echo "$fails chequeo(s) pendientes: falta aplicar supabase/migration_react.sql"
+  echo "$fails chequeo(s) pendientes. Lo más probable es que falte aplicar"
+  echo "supabase/migration_react.sql, pero el detalle de cada FALTA dice si eso"
+  echo "lo arregla o si hay que revisar la base a mano."
   exit 1
 fi
 echo "Todo aplicado."

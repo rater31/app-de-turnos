@@ -1,24 +1,61 @@
 PENDIENTES — app-de-turnos
 Actualizado: 2026-10-05
 Estado: produccion en https://pdbapryhmiaohdtwqatd.supabase.co
-Todo lo de la seccion 1 esta arreglado en codigo pero falta ejecutar o verificar.
-Lo de la seccion 2 se aplico en la base el 5-oct; lo de la seccion 5 todavia no.
+ordenado por impacto real, no por antiguedad. La seccion 1 es lo unico que
+importa; la seccion 4 es ruido que se puede hacer en cualquier momento.
 
 
-== 1. URGENTE: sigue roto en produccion ==
+== 1. BLOQUEA EL PRODUCTO ==
 
-[ ] Desplegar la Edge Function "reminders"
-    El fix de hora local por tenant esta escrito en supabase/functions/reminders/index.ts
-    pero NO esta desplegado. pg_cron la invoca cada 15 min (ver supabase/cron_reminders.sql),
-    asi que la version vieja sigue mandando los recordatorios a la hora de UTC/Buzz.
-    Ojo: .github/workflows/supabase-reminders.yml SOLO la invoca por HTTP, no la despliega.
+[ ] AVERIGUAR QUE PASO CON LOS TENANTS — LO MAS URGENTE
+    Verificado el 5-oct contra produccion con la anon key: NO hay ningun tenant
+    activo. /rest/v1/tenants?select=slug,plan,status devuelve [], y tambien []
+    services y business_hours. La policy tenants_select_public es
+    using (status = 'active'), asi que la web publica no muestra nada.
+    Este archivo antes decia que habia 4 tenants, los 4 active. Con la anon key
+    no se puede distinguir "borrados" de "todos deshabilitados". En el SQL Editor:
+      select slug, plan, status, trial_ends_at, created_at
+        from public.tenants order by created_at;
+    Ojo: "landing" TENIA data real (turno del 8-sep para "fede hidalgo" y una
+    seña de $5000 pagada el 6-sep a "Micaela Ramos"). Si disappeared, revisar
+    tambien auth.users antes de dar por perdidos los datos.
+    scripts/verificar-migracion.sh ahora marca esto como FALTA.
+
+[ ] La Edge Function "reminders" NO EXISTE en produccion
+    Verificado el 5-oct: GET .../functions.supabase.co/reminders -> 404
+    "Requested function was not found". No es un bug de zona horaria como
+    decia este archivo antes: la funcion nunca estuvo desplegada con ese nombre.
+    Lo unico desplegado era "bright-api" (ver el pendiente siguiente).
+    pg_cron la invoca cada 15 min contra una URL inexistente, asi que hoy no se
+    manda ningun recordatorio. Ojo: .github/workflows/supabase-reminders.yml
+    SOLO la invoca por HTTP, no la despliega.
     Necesita Supabase CLI + access token, o deploy manual.
 
-[x] ~~Correr supabase/cleanup_pruebas.sql~~ — HECHO 2026-09-30
-    Borro las 4 reservas de prueba del 30-sep, sus clientes y recordatorios.
-    Quedo preservado a proposito: el turno del 8-sep de "fede hidalgo" (fuera de
-    la ventana de 12 h del script) y los clientes con seña real pagada.
-    Tenant "landing" limpio de pruebas.
+[ ] Que es la Edge Function "bright-api"
+    Desplegada el 1-oct en el mismo proyecto, NO esta en el repo y no aparece en
+    este archivo. Responde {"ok":false,"error":"No autorizado"} con 401, que es
+    la misma respuesta que escriben reminders/delete-business: no alcanza para
+    identificarla. Sospecha fuerte: es "reminders" subida con otro nombre, lo que
+    explicaria que el cron de 404. Si es propia y cumple otra funcion, hoy hay
+    dos caminos para borrar y hay que revisar que no se pisen.
+
+[x] ~~Borrado de negocio desde /admin/usuarios~~ — CODIGO HECHO 2026-10-05
+    El boton "Eliminar" no borraba nada. Causa: el RPC delete_user_data hacia
+    "delete from storage.objects" y Supabase lo rechaza con "Direct deletion
+    from storage tables is not allowed", lo que abortaba la transaccion plpgsql
+    completa (usuario y negocio seguian ahi, sin ningun mensaje util).
+    Que se hizo:
+      - el RPC ya no toca storage.objects y devuelve auth_user_ids;
+      - nueva Edge Function delete-business (service_role) que ademas borra los
+        archivos de Storage y las cuentas de auth.users. Desplegada y ACTIVA.
+        Orden: base -> Storage -> auth, para que un fallo de Storage no deje el
+        negocio vivo sin comprobantes;
+      - modal de confirmacion que exige escribir ELIMINAR y muestra el impacto
+        real (clientes, reservas, servicios, pagos);
+      - scripts/verificar-migracion.sh puede correr en Windows.
+    FALTA: correr migration_react.sql en el SQL Editor (el RPC en produccion
+    todavia tiene el delete sobre storage.objects) y probar con un negocio de
+    prueba, no con uno real.
 
 
 == 2. Sin verificar ==
@@ -81,20 +118,12 @@ Lo de la seccion 2 se aplico en la base el 5-oct; lo de la seccion 5 todavia no.
 
 == 4. Decisiones y limpieza ==
 
-[ ] Revisar que tenants son reales y cuales borrar
-    Hay 4 en produccion, los 4 con timezone America/Argentina/Buenos_Aires:
-      peluqueria     pro    active
-      landing        pro    active
-      masajes        pro    active
-      nuevo-negra-404 gratis active
-    OJO: "landing" NO es un tenant de prueba. Tiene data real de clientes:
-    un turno del 8-sep para "fede hidalgo" y una seña de $5000 pagada el 6-sep
-    a nombre de "Micaela Ramos". No borrar. Faltaria revisar peluqueria y
-    masajes antes de asumir que son de prueba.
-
-    Aparte: hay 2 pagos con booking_id = null (5000, paid, 6-sep). No son basura
-    ni un bug: payments.booking_id es nullable con ON DELETE SET NULL, asi que
-    quedan como registro contable cuando el turno se borra. Dejarlos.
+[x] ~~Revisar que tenants son reales y cuales borrar~~ — REEMPLAZADO
+    Este pendiente quedo obsoleto el 5-oct: se verifico contra produccion y NO
+    hay ningun tenant activo (ver seccion 1). Los 4 que se listaban aqui
+    (peluqueria, landing, masajes, nuevo-negra-404) ya no son visibles por la
+    policy publica. No se sabe si se borraron o se deshabilitaron: eso hay que
+    averiguarlo antes de dar cualquier dato por perdido.
 
 [x] ~~Probar el deploy a GitHub Pages por primera vez~~ — CERRADO
     No aplica: el deploy es Netlify con build nativo (netlify.toml, publish=out).
@@ -112,7 +141,7 @@ Lo de la seccion 2 se aplico en la base el 5-oct; lo de la seccion 5 todavia no.
     Los textos "$8.000" que estaban repetidos en landing, registro y ajustes
     ahora salen de ahi.
 
-[ ] CORRER migration_react.sql ENTERO — LO MAS URGENTE
+[ ] CORRER migration_react.sql ENTERO — URGENTE (ya no es lo mas urgente)
     Los cambios del 5-oct viven en los bloques 1, 3 y 10 del archivo:
       - Bloques 1 y 10: al vencer la prueba el acceso cae a 'gratis' en vez de
         'blocked'. Antes la pagina publica de un tenant con plan 'pro' devolvia
