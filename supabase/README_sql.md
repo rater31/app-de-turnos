@@ -75,8 +75,16 @@ La base se borra antes que Storage a propósito: si Storage falla, el negocio ya
 está dado de baja y solo quedan archivos huérfanos, que es un mal menor. Al
 revés, quedaría un negocio sin comprobantes pero con reservas.
 
-**Edge Function `reminders`** (`supabase functions deploy reminders` y luego
-`supabase secrets set ...`):
+**Edge Function `reminders`** (`supabase functions deploy reminders --no-verify-jwt`
+y luego `supabase secrets set ...`):
+
+> El flag `--no-verify-jwt` es obligatorio: pg_cron la invoca con
+> `Authorization: Bearer <CRON_SECRET>` (no un JWT), y con `verify_jwt` activo
+> Supabase la rechaza antes de llegar al código.
+>
+> Ojo: en producción esta función quedó desplegada con el nombre **`bright-api`**
+> (por eso `cron_reminders.sql` apunta a `/bright-api`). Si la redeployás con su
+> nombre real, volvé a apuntar el cron a `/reminders`.
 
 | Secret | Uso |
 | --- | --- |

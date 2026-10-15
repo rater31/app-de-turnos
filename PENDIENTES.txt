@@ -1,43 +1,40 @@
 PENDIENTES — app-de-turnos
-Actualizado: 2026-10-05
+Actualizado: 2026-10-13
 Estado: produccion en https://pdbapryhmiaohdtwqatd.supabase.co
 ordenado por impacto real, no por antiguedad. La seccion 1 es lo unico que
-importa; la seccion 4 es ruido que se puede hacer en cualquier momento.
+importa; lo demas se puede hacer en cualquier momento.
 
 
 == 1. BLOQUEA EL PRODUCTO ==
 
-[ ] AVERIGUAR QUE PASO CON LOS TENANTS — LO MAS URGENTE
-    Verificado el 5-oct contra produccion con la anon key: NO hay ningun tenant
-    activo. /rest/v1/tenants?select=slug,plan,status devuelve [], y tambien []
-    services y business_hours. La policy tenants_select_public es
-    using (status = 'active'), asi que la web publica no muestra nada.
-    Este archivo antes decia que habia 4 tenants, los 4 active. Con la anon key
-    no se puede distinguir "borrados" de "todos deshabilitados". En el SQL Editor:
-      select slug, plan, status, trial_ends_at, created_at
-        from public.tenants order by created_at;
-    Ojo: "landing" TENIA data real (turno del 8-sep para "fede hidalgo" y una
-    seña de $5000 pagada el 6-sep a "Micaela Ramos"). Si disappeared, revisar
-    tambien auth.users antes de dar por perdidos los datos.
-    scripts/verificar-migracion.sh ahora marca esto como FALTA.
+[x] ~~AVERIGUAR QUE PASO CON LOS TENANTS~~ — CERRADO 2026-10-13
+    Confirmado por el owner: los negocios que habia se borraron a proposito
+    desde el panel de admin. No se perdio data real; los tenants eran de prueba.
+    La web publica aparece vacia porque no hay negocios activos, que es lo
+    esperado. scripts/verificar-migracion.sh puede seguir marcando "FALTA"
+    mientras no haya ningun tenant activo: es normal, no un bug.
 
-[ ] La Edge Function "reminders" NO EXISTE en produccion
-    Verificado el 5-oct: GET .../functions.supabase.co/reminders -> 404
-    "Requested function was not found". No es un bug de zona horaria como
-    decia este archivo antes: la funcion nunca estuvo desplegada con ese nombre.
-    Lo unico desplegado era "bright-api" (ver el pendiente siguiente).
-    pg_cron la invoca cada 15 min contra una URL inexistente, asi que hoy no se
-    manda ningun recordatorio. Ojo: .github/workflows/supabase-reminders.yml
-    SOLO la invoca por HTTP, no la despliega.
-    Necesita Supabase CLI + access token, o deploy manual.
+[ ] La Edge Function del cron NO responde como "reminders"
+    Verificado de nuevo el 2026-10-13: GET .../functions/v1/reminders -> 404
+    ("Requested function was not found"). El codigo de reminders esta bien: el
+    problema es el nombre del deploy. Ver el pendiente siguiente ("bright-api").
+    El repo ya quedo corregido: cron_reminders.sql apunta a /bright-api.
+    FALTA EN PROD: reapuntar el job de pg_cron (el job ya existe mal apuntado):
+      update cron.job
+         set command = replace(command, '/reminders', '/bright-api')
+       where jobname = 'reminders-cada-15min';
+      select jobid, jobname, schedule, command from cron.job;
+    Alternativa: re-ejecutar cron_reminders.sql con <project>=pdbapryhmiaohdtwqatd
+    y el CRON_SECRET real.
+    OJO: al redeployar reminders hace falta --no-verify-jwt, porque el cron manda
+    Authorization: Bearer <CRON_SECRET> y no un JWT.
 
-[ ] Que es la Edge Function "bright-api"
-    Desplegada el 1-oct en el mismo proyecto, NO esta en el repo y no aparece en
-    este archivo. Responde {"ok":false,"error":"No autorizado"} con 401, que es
-    la misma respuesta que escriben reminders/delete-business: no alcanza para
-    identificarla. Sospecha fuerte: es "reminders" subida con otro nombre, lo que
-    explicaria que el cron de 404. Si es propia y cumple otra funcion, hoy hay
-    dos caminos para borrar y hay que revisar que no se pisen.
+[x] ~~Que es la Edge Function "bright-api"~~ — RESUELTO 2026-10-13
+    Es "reminders" desplegada con el nombre equivocado. Prueba: con un bearer
+    cualquiera responde {"ok":false,"error":"No autorizado"}, el mismo JSON que
+    escribe authorized() en functions/reminders/index.ts, y tiene verify_jwt
+    deshabilitado (que es lo que necesita el cron). Por eso el cron a /reminders
+    daba 404. No hay dos caminos para borrar: delete-business es la unica.
 
 [x] ~~Borrado de negocio desde /admin/usuarios~~ — CODIGO HECHO 2026-10-05
     El boton "Eliminar" no borraba nada. Causa: el RPC delete_user_data hacia
@@ -56,6 +53,45 @@ importa; la seccion 4 es ruido que se puede hacer en cualquier momento.
     FALTA: correr migration_react.sql en el SQL Editor (el RPC en produccion
     todavia tiene el delete sobre storage.objects) y probar con un negocio de
     prueba, no con uno real.
+
+
+-- PLAN PARA CERRAR LA SECCION 1 (orden de ejecucion) --------------------------
+-- Todo es manual en el dashboard/SQL Editor: no hay Supabase CLI ni access
+-- token en el repo, y no se hace deploy sin autorizacion.
+
+Paso 1. Reapuntar el cron (SQL Editor de pdbapryhmiaohdtwqatd):
+  update cron.job
+     set command = replace(command, '/reminders', '/bright-api')
+   where jobname = 'reminders-cada-15min';
+  select jobid, jobname, schedule, command from cron.job;
+  - Verificar que command quede con .../bright-api y el CRON_SECRET.
+  - Si UPDATE 0: correr cron_reminders.sql con <project>=pdbapryhmiaohdtwqatd
+    y el CRON_SECRET real.
+
+Paso 2. Probar el envio:
+  - GitHub > Settings > Secrets and variables > Actions: deben existir
+    SUPABASE_PROJECT_REF y SUPABASE_CRON_SECRET.
+  - Actions > "Reminders manual" > Run workflow.
+  - HTTP 200 {"ok":true,...} = ok (con base vacia, processed: 0 igual confirma
+    que la funcion responde).
+  - "RESEND_API_KEY no configurada" -> supabase secrets set RESEND_API_KEY=...
+  - 401 -> el CRON_SECRET del workflow no coincide con el de la funcion.
+
+Paso 3. Correr la migracion:
+  - Pegar supabase/migration_react.sql ENTERO en el SQL Editor (idempotente).
+  - ./scripts/verificar-migracion.sh
+    (va a seguir marcando "no hay NINGUN tenant activo": esperado, ver mas
+    arriba; lo importante es que no falte ningun RPC ni columna).
+  - Confirmar que delete_user_data ya no toca Storage:
+      select prosrc from pg_proc where proname = 'delete_user_data';
+    (no debe aparecer storage.objects; lo arregla el bloque 4).
+
+Paso 4. Probar el borrado de negocio:
+  - Crear un negocio de prueba desde /registro (o onboard_tenant).
+  - Loguearse como superadmin en /admin/usuarios y borrarlo escribiendo ELIMINAR.
+  - Confirmar que desaparecen el negocio, los archivos de Storage y el usuario
+    de auth.users.
+-- -----------------------------------------------------------------------------
 
 
 == 2. Sin verificar ==
@@ -77,7 +113,7 @@ importa; la seccion 4 es ruido que se puede hacer en cualquier momento.
     "mercadopago": "^3.6.0" esta en dependencies pero no se importa en ningun lado.
     El cobro es transferencia manual y un humano valida desde /admin/pagos.
     Cuando se integre (Checkout Pro o Planes), src/lib/plataforma.ts desaparece:
-    los datos pasan a salir de la API (el precio ya salio, ver seccion 5).
+    los datos pasan a salir de la API (el precio ya salio, ver seccion 4).
 
 [ ] Prop muerta: subscriptionStatus
     El form dejo de recibirla, pero el campo sigue produciendose en api.ts
@@ -116,22 +152,7 @@ importa; la seccion 4 es ruido que se puede hacer en cualquier momento.
     editar el archivo a mano y redeployar.
 
 
-== 4. Decisiones y limpieza ==
-
-[x] ~~Revisar que tenants son reales y cuales borrar~~ — REEMPLAZADO
-    Este pendiente quedo obsoleto el 5-oct: se verifico contra produccion y NO
-    hay ningun tenant activo (ver seccion 1). Los 4 que se listaban aqui
-    (peluqueria, landing, masajes, nuevo-negra-404) ya no son visibles por la
-    policy publica. No se sabe si se borraron o se deshabilitaron: eso hay que
-    averiguarlo antes de dar cualquier dato por perdido.
-
-[x] ~~Probar el deploy a GitHub Pages por primera vez~~ — CERRADO
-    No aplica: el deploy es Netlify con build nativo (netlify.toml, publish=out).
-    Nunca existio un workflow de Pages. La carpeta .next/ que quedaba en el repo
-    era de la app Next.js anterior; se borro el 5-oct junto con dist/.
-
-
-== 5. Hecho el 5-oct, pendiente de aplicar ==
+== 4. Hecho el 5-oct, pendiente de aplicar ==
 
 [x] Precio del plan editable desde /admin/planes — SQL APLICADO
     Tabla singleton platform_settings (schema.sql + bloque 12 de migration).
@@ -198,3 +219,17 @@ importa; la seccion 4 es ruido que se puede hacer en cualquier momento.
     Esta hardcodeado a una ventana de 12 h y aborta si el conteo no da
     exactamente 4 reservas. Re-correrlo hoy no borra nada, pero si alguien lo
     pega a ciegas en el SQL Editor de produccion es un riesgo. Archivar.
+
+
+== ARCHIVO (secciones cerradas) ==
+
+[x] ~~Revisar que tenants son reales y cuales borrar~~ — CERRADO 2026-10-13
+    Obsoleto: el owner confirmo que los negocios que habia se borraron a
+    proposito desde el panel de admin (ver seccion 1). Los 4 que se listaban
+    (peluqueria, landing, masajes, nuevo-negra-404) eran de prueba; no se
+    perdio data real.
+
+[x] ~~Probar el deploy a GitHub Pages por primera vez~~ — CERRADO 2026-10-05
+    No aplica: el deploy es Netlify con build nativo (netlify.toml, publish=out).
+    Nunca existio un workflow de Pages. La carpeta .next/ que quedaba en el repo
+    era de la app Next.js anterior; se borro el 5-oct junto con dist/.

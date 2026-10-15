@@ -29,7 +29,7 @@ jobs:
         run: |
           code=$(curl -sS -o /tmp/reminders.out -w "%{http_code}" \
             -H "Authorization: Bearer ${CRON_SECRET:?Falta el secret SUPABASE_CRON_SECRET}" \
-            "https://${PROJECT_REF:?Falta la var SUPABASE_PROJECT_REF}.functions.supabase.co/reminders")
+            "https://${PROJECT_REF:?Falta la var SUPABASE_PROJECT_REF}.functions.supabase.co/bright-api")
           echo "HTTP $code"
           cat /tmp/reminders.out
           if [ "$code" != "200" ]; then exit 1; fi
