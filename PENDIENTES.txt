@@ -1,5 +1,5 @@
 PENDIENTES — app-de-turnos
-Actualizado: 2026-10-13
+Actualizado: 2026-10-16
 Estado: produccion en https://pdbapryhmiaohdtwqatd.supabase.co
 ordenado por impacto real, no por antiguedad. La seccion 1 es lo unico que
 importa; lo demas se puede hacer en cualquier momento.
@@ -14,27 +14,37 @@ importa; lo demas se puede hacer en cualquier momento.
     esperado. scripts/verificar-migracion.sh puede seguir marcando "FALTA"
     mientras no haya ningun tenant activo: es normal, no un bug.
 
-[ ] La Edge Function del cron NO responde como "reminders"
-    Verificado de nuevo el 2026-10-13: GET .../functions/v1/reminders -> 404
-    ("Requested function was not found"). El codigo de reminders esta bien: el
-    problema es el nombre del deploy. Ver el pendiente siguiente ("bright-api").
-    El repo ya quedo corregido: cron_reminders.sql apunta a /bright-api.
-    FALTA EN PROD: reapuntar el job de pg_cron (el job ya existe mal apuntado):
-      update cron.job
-         set command = replace(command, '/reminders', '/bright-api')
-       where jobname = 'reminders-cada-15min';
-      select jobid, jobname, schedule, command from cron.job;
-    Alternativa: re-ejecutar cron_reminders.sql con <project>=pdbapryhmiaohdtwqatd
-    y el CRON_SECRET real.
-    OJO: al redeployar reminders hace falta --no-verify-jwt, porque el cron manda
-    Authorization: Bearer <CRON_SECRET> y no un JWT.
+[x] ~~La Edge Function del cron NO responde como "reminders"~~ — CERRADO 2026-10-16
+    El diagnostico previo se quedo corto: NO era solo la URL. Estado real hallado
+    el 2026-10-16 con acceso al CLI/Management API:
+      - el job apuntaba a .../reminders -> 404;
+      - el header tenia el PLACEHOLDER literal "Bearer <ACA VA TU CRON_SECRET
+        REAL>": el secret nunca se reemplazo;
+      - bright-api tenia verify_jwt = true (PENDIENTES afirmaba lo contrario): el
+        gateway cortaba el bearer del cron con UNAUTHORIZED_INVALID_JWT_FORMAT;
+      - no existian los secrets CRON_SECRET ni RESEND_API_KEY en la funcion.
+    Hecho el 2026-10-16:
+      - verify_jwt = false en bright-api;
+      - CRON_SECRET nuevo seteado (supabase secrets set);
+      - job reapuntado con cron.schedule('reminders-cada-15min','*/15 * * * *',
+        ...) a /bright-api con el secret real. OJO: un UPDATE directo a cron.job
+        falla con "42501 permission denied for table job"; usar cron.schedule.
+      - verificado: GET /bright-api con el CRON_SECRET responde
+        HTTP 200 {"ok":true,...,"note":"RESEND_API_KEY no configurada"}.
+    FALTA: setear RESEND_API_KEY (y opcional EMAIL_FROM), si no los recordatorios
+    no se envian: la funcion responde 200 pero no manda nada. Ademas, cargar el
+    secret nuevo en GitHub Actions: secrets.SUPABASE_CRON_SECRET (el valor que
+    devuelve la config) y var SUPABASE_PROJECT_REF=pdbapryhmiaohdtwqatd, o el
+    workflow "Reminders manual" falla con 401.
 
 [x] ~~Que es la Edge Function "bright-api"~~ — RESUELTO 2026-10-13
-    Es "reminders" desplegada con el nombre equivocado. Prueba: con un bearer
-    cualquiera responde {"ok":false,"error":"No autorizado"}, el mismo JSON que
-    escribe authorized() en functions/reminders/index.ts, y tiene verify_jwt
-    deshabilitado (que es lo que necesita el cron). Por eso el cron a /reminders
-    daba 404. No hay dos caminos para borrar: delete-business es la unica.
+    Es "reminders" desplegada con el nombre equivocado. Por eso el cron a
+    /reminders daba 404. No hay dos caminos para borrar: delete-business es la
+    unica.
+    CORREGIDO 2026-10-16: la prueba citada arriba era falsa. Con un bearer que no
+    es JWT el gateway responde UNAUTHORIZED_INVALID_JWT_FORMAT (no
+    {"ok":false,"error":"No autorizado"}), y verify_jwt estaba en TRUE, no
+    deshabilitado. Se deshabilito recien el 2026-10-16 (ver el pendiente de arriba).
 
 [x] ~~Borrado de negocio desde /admin/usuarios~~ — CODIGO HECHO 2026-10-05
     El boton "Eliminar" no borraba nada. Causa: el RPC delete_user_data hacia
@@ -59,23 +69,28 @@ importa; lo demas se puede hacer en cualquier momento.
 -- Todo es manual en el dashboard/SQL Editor: no hay Supabase CLI ni access
 -- token en el repo, y no se hace deploy sin autorizacion.
 
-Paso 1. Reapuntar el cron (SQL Editor de pdbapryhmiaohdtwqatd):
-  update cron.job
-     set command = replace(command, '/reminders', '/bright-api')
-   where jobname = 'reminders-cada-15min';
-  select jobid, jobname, schedule, command from cron.job;
-  - Verificar que command quede con .../bright-api y el CRON_SECRET.
-  - Si UPDATE 0: correr cron_reminders.sql con <project>=pdbapryhmiaohdtwqatd
-    y el CRON_SECRET real.
+Paso 1. Reapuntar el cron — HECHO 2026-10-16 (via Management API):
+  NO usar "update cron.job" desde el Management API: da
+  "42501 permission denied for table job". Se hizo con cron.schedule, que corre
+  como SECURITY DEFINER:
+    select cron.schedule('reminders-cada-15min', '*/15 * * * *',
+      $job$ select net.http_post(
+              url := 'https://pdbapryhmiaohdtwqatd.supabase.co/functions/v1/bright-api',
+              headers := jsonb_build_object(
+                'Authorization', 'Bearer <CRON_SECRET real>',
+                'Content-Type', 'application/json'),
+              body := '{}') as request_id; $job$);
+  Ademas hubo que poner verify_jwt = false en bright-api y setear CRON_SECRET
+  (ninguno de los dos estaba).
+  - Verificar: select jobid, jobname, schedule, active, command from cron.job;
 
-Paso 2. Probar el envio:
-  - GitHub > Settings > Secrets and variables > Actions: deben existir
-    SUPABASE_PROJECT_REF y SUPABASE_CRON_SECRET.
-  - Actions > "Reminders manual" > Run workflow.
-  - HTTP 200 {"ok":true,...} = ok (con base vacia, processed: 0 igual confirma
-    que la funcion responde).
-  - "RESEND_API_KEY no configurada" -> supabase secrets set RESEND_API_KEY=...
-  - 401 -> el CRON_SECRET del workflow no coincide con el de la funcion.
+Paso 2. Probar el envio — PARCIAL 2026-10-16:
+  - Hecho: GET /bright-api con el CRON_SECRET -> HTTP 200 {"ok":true,...,
+    "note":"RESEND_API_KEY no configurada"}.
+  - FALTA: supabase secrets set RESEND_API_KEY=... (y opcional EMAIL_FROM).
+  - FALTA: GitHub > Settings > Secrets and variables > Actions: cargar
+    SUPABASE_CRON_SECRET con el secret nuevo y var SUPABASE_PROJECT_REF=
+    pdbapryhmiaohdtwqatd. Recien ahi "Reminders manual" > Run workflow anda.
 
 Paso 3. Correr la migracion:
   - Pegar supabase/migration_react.sql ENTERO en el SQL Editor (idempotente).
