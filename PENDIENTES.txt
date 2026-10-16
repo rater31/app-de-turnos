@@ -31,11 +31,17 @@ importa; lo demas se puede hacer en cualquier momento.
         falla con "42501 permission denied for table job"; usar cron.schedule.
       - verificado: GET /bright-api con el CRON_SECRET responde
         HTTP 200 {"ok":true,...,"note":"RESEND_API_KEY no configurada"}.
-    FALTA: setear RESEND_API_KEY (y opcional EMAIL_FROM), si no los recordatorios
-    no se envian: la funcion responde 200 pero no manda nada. Ademas, cargar el
-    secret nuevo en GitHub Actions: secrets.SUPABASE_CRON_SECRET (el valor que
-    devuelve la config) y var SUPABASE_PROJECT_REF=pdbapryhmiaohdtwqatd, o el
-    workflow "Reminders manual" falla con 401.
+    FALTA terminar la config para que salga el mail: ver el pendiente "[ ]
+    Recordatorios: falta la ultima config" mas abajo.
+
+[ ] Recordatorios: falta la ultima config (el disparo ya funciona)
+    El problema del cron quedo resuelto (ver el pendiente cerrado de arriba),
+    pero sin esto no se envia ningun mail:
+      - supabase secrets set RESEND_API_KEY=... (y opcional EMAIL_FROM=...).
+      - GitHub > Settings > Secrets and variables > Actions: cargar el secret
+        SUPABASE_CRON_SECRET con el valor nuevo y la var SUPABASE_PROJECT_REF=
+        pdbapryhmiaohdtwqatd; recien ahi "Reminders manual" > Run workflow anda.
+        Si el secret se perdio, se regenera y se repite el Paso 1 del plan.
 
 [x] ~~Que es la Edge Function "bright-api"~~ — RESUELTO 2026-10-13
     Es "reminders" desplegada con el nombre equivocado. Por eso el cron a
@@ -66,8 +72,9 @@ importa; lo demas se puede hacer en cualquier momento.
 
 
 -- PLAN PARA CERRAR LA SECCION 1 (orden de ejecucion) --------------------------
--- Todo es manual en el dashboard/SQL Editor: no hay Supabase CLI ni access
--- token en el repo, y no se hace deploy sin autorizacion.
+-- Actualizado 2026-10-16: el repo SI tiene acceso a Supabase (CLI logueado y
+-- proyecto pdbapryhmiaohdtwqatd linkeado; se uso la Management API con un access
+-- token). No se hace deploy sin autorizacion explicita.
 
 Paso 1. Reapuntar el cron — HECHO 2026-10-16 (via Management API):
   NO usar "update cron.job" desde el Management API: da
