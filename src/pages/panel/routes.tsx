@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import PanelLayout from "./PanelLayout";
 import PanelHomePage from "./PanelHomePage";
+import AgendaPage from "./AgendaPage";
 import ServiciosPage from "./ServiciosPage";
 import NuevoServicioPage from "./NuevoServicioPage";
 import EditarServicioPage from "./EditarServicioPage";
@@ -9,6 +10,7 @@ import NuevoProfesionalPage from "./NuevoProfesionalPage";
 import EditarProfesionalPage from "./EditarProfesionalPage";
 import HorariosPage from "./HorariosPage";
 import ClientesPage from "./ClientesPage";
+import ClienteDetailPage from "./ClienteDetailPage";
 import AjustesPage from "./AjustesPage";
 import SoportePage from "./SoportePage";
 
@@ -16,6 +18,7 @@ import SoportePage from "./SoportePage";
 // /panel/* con el componente correspondiente.
 export const panelRoutes = [
   { path: "", label: "Inicio", element: <PanelHomePage /> },
+  { path: "agenda", label: "Agenda", element: <AgendaPage /> },
   { path: "servicios", label: "Servicios", element: <ServiciosPage /> },
   { path: "servicios/nuevo", label: "Nuevo servicio", element: <NuevoServicioPage /> },
   { path: "servicios/:id/editar", label: "Editar servicio", element: <EditarServicioPage /> },
@@ -24,6 +27,7 @@ export const panelRoutes = [
   { path: "profesionales/:id/editar", label: "Editar profesional", element: <EditarProfesionalPage /> },
   { path: "horarios", label: "Horarios", element: <HorariosPage /> },
   { path: "clientes", label: "Clientes", element: <ClientesPage /> },
+  { path: "clientes/:id", label: "Detalle de cliente", element: <ClienteDetailPage /> },
   { path: "ajustes", label: "Ajustes", element: <AjustesPage /> },
   { path: "soporte", label: "Soporte", element: <SoportePage /> },
 ];

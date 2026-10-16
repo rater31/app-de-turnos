@@ -68,6 +68,7 @@ export type DBClient = {
   name: string;
   phone: string | null;
   email: string | null;
+  notes: string | null;
   created_at: string;
 };
 

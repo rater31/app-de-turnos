@@ -4,6 +4,7 @@ import { supabaseClient } from "@/lib/supabase/client";
 
 const LINKS = [
   { href: "/panel", label: "Inicio", icon: "home", end: true },
+  { href: "/panel/agenda", label: "Agenda", icon: "agenda", end: false },
   { href: "/panel/profesionales", label: "Profesionales", icon: "staff", end: false },
   { href: "/panel/servicios", label: "Servicios", icon: "service", end: false },
   { href: "/panel/horarios", label: "Horarios", icon: "hours", end: false },
@@ -14,6 +15,7 @@ const LINKS = [
 
 const ICONS: Record<string, string> = {
   home: "M3 12l9-9 9 9M5 10v10h5v-6h4v6h5V10",
+  agenda: "M8 2v4M16 2v4M3 10h18M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z",
   staff: "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 7a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75",
   service: "M4 6h16M4 10h16M4 14h10M4 18h10",
   hours: "M12 3v9l6 3M12 3a9 9 0 1 0 9 9",

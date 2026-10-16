@@ -63,7 +63,7 @@ export default function PanelHomePage() {
         {
           label: "Próximos turnos",
           value: data.bookings.filter((b) => b.status === "pending" || b.status === "confirmed").length,
-          href: "/panel",
+          href: "/panel/agenda",
         },
       ]
     : null;

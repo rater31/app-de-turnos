@@ -545,14 +545,17 @@ export async function createPublicBooking(input: {
 // Panel: consultas (usuario autenticado del tenant -> RLS current_tenant_id)
 // ---------------------------------------------------------------------------
 
-export async function listBookings(tenantId: string): Promise<BookingRow[]> {
-  const { data } = await supabaseClient
+export async function listBookings(tenantId: string, clientId?: string): Promise<BookingRow[]> {
+  let query = supabaseClient
     .from("bookings")
     .select(
       "id, starts_at, ends_at, status, notes, services(name, duration_minutes, price), staff_members(name, color), clients(name, phone, email), payments(id, receipt_url, status)",
     )
-    .eq("tenant_id", tenantId)
-    .order("starts_at", { ascending: true });
+    .eq("tenant_id", tenantId);
+
+  if (clientId) query = query.eq("client_id", clientId);
+
+  const { data } = await query.order("starts_at", { ascending: true });
 
   return Promise.all((data ?? []).map(async (b: any) => ({
     id: b.id,
@@ -677,8 +680,36 @@ export async function listClients(tenantId: string) {
     name: c.name,
     phone: c.phone,
     email: c.email,
+    notes: c.notes ?? null,
     created_at: c.created_at,
   }));
+}
+
+export async function getClient(tenantId: string, id: string) {
+  const { data } = await supabaseClient
+    .from("clients")
+    .select("*")
+    .eq("tenant_id", tenantId)
+    .eq("id", id)
+    .maybeSingle();
+  if (!data) return null;
+  return {
+    id: data.id,
+    name: data.name,
+    phone: data.phone,
+    email: data.email,
+    notes: data.notes ?? null,
+    created_at: data.created_at,
+  };
+}
+
+export async function countClientBookings(tenantId: string, clientId: string) {
+  const { count } = await supabaseClient
+    .from("bookings")
+    .select("id", { count: "exact", head: true })
+    .eq("tenant_id", tenantId)
+    .eq("client_id", clientId);
+  return count ?? 0;
 }
 
 export async function getSubscription(tenantId: string) {
@@ -1545,8 +1576,25 @@ export async function createClient(
   name: string,
   phone: string | null,
   email: string | null,
+  notes: string | null = null,
 ) {
-  await supabaseClient.from("clients").insert({ tenant_id: tenantId, name, phone, email });
+  await supabaseClient.from("clients").insert({ tenant_id: tenantId, name, phone, email, notes });
+}
+
+export async function updateClient(
+  tenantId: string,
+  id: string,
+  data: { name: string; phone: string | null; email: string | null; notes: string | null },
+) {
+  await supabaseClient
+    .from("clients")
+    .update({ name: data.name, phone: data.phone, email: data.email, notes: data.notes })
+    .eq("id", id)
+    .eq("tenant_id", tenantId);
+}
+
+export async function deleteClient(tenantId: string, id: string) {
+  await supabaseClient.from("clients").delete().eq("id", id).eq("tenant_id", tenantId);
 }
 
 export async function updateTenant(
@@ -1707,6 +1755,8 @@ export const db = {
   listStaffOptions,
   listHours,
   listClients,
+  getClient,
+  countClientBookings,
   getSubscription,
   getTenant,
   listTenants,
@@ -1737,6 +1787,8 @@ export const db = {
   createHours,
   deleteHours,
   createClient,
+  updateClient,
+  deleteClient,
   updateTenant,
   updateBookingStatus,
   updateBookingPaymentStatus,
