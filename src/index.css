@@ -1,5 +1,93 @@
 @import "tailwindcss";
 @import "@fontsource-variable/inter";
+@import "@fontsource-variable/figtree";
+@import "@fontsource-variable/outfit";
+
+/* ---------------------------------------------------------------------------
+ * Tokens
+ *
+ * La app ya usaba la escala slate/indigo de Tailwind y no se toca: la paleta
+ * de marca se mantiene (índigo) y estos tokens solo formalizan los colores
+ * neutros y los dos oscuros que usa la landing.
+ * ------------------------------------------------------------------------- */
+@theme {
+  /* Marca */
+  --color-marca: #4f46e5;
+  --color-marca-oscuro: #4338ca;
+  --color-marca-claro: #eef2ff;
+
+  /* Escala de la landing */
+  --color-noche: #0b1029;
+  --color-noche-2: #141a44;
+  --color-tinta: #0f172a;
+  --color-tinta-suave: #475569;
+  --color-borde: #e2e8f0;
+  --color-fondo: #f8fafc;
+
+  /* Tipografías de display */
+  --font-titulo: "Outfit Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-cuerpo: "Figtree Variable", ui-sans-serif, system-ui, sans-serif;
+
+  /* Animaciones */
+  --animate-cinta: cinta 38s linear infinite;
+  --animate-mancha: mancha 18s ease-in-out infinite;
+  --animate-flotar: flotar 6s ease-in-out infinite;
+  --animate-brillo: brillo 3.5s ease-in-out infinite;
+  --animate-latido: latido 2s ease-out infinite;
+}
+
+@keyframes cinta {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@keyframes mancha {
+  0%,
+  100% {
+    transform: translate(0) scale(1);
+  }
+  33% {
+    transform: translate(40px, -30px) scale(1.1);
+  }
+  66% {
+    transform: translate(-30px, 20px) scale(0.95);
+  }
+}
+
+@keyframes flotar {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-12px);
+  }
+}
+
+@keyframes brillo {
+  0% {
+    transform: translateX(-150%) skewX(-20deg);
+  }
+  60%,
+  100% {
+    transform: translateX(350%) skewX(-20deg);
+  }
+}
+
+@keyframes latido {
+  from {
+    transform: scale(1);
+    opacity: 0.6;
+  }
+  to {
+    transform: scale(1.8);
+    opacity: 0;
+  }
+}
 
 :root {
   font-family: "Inter Variable", system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -7,6 +95,10 @@
 
 html {
   -webkit-text-size-adjust: 100%;
+  /* Los anchors de la landing (#planes, #faq...) tienen que quedar por debajo
+     del header fijo, que mide 72px. */
+  scroll-padding-top: 6rem;
+  scroll-behavior: smooth;
 }
 
 body {
@@ -24,4 +116,43 @@ body {
   flex-direction: column;
   flex: 1;
   min-height: 100vh;
+}
+
+/* ---------------------------------------------------------------------------
+ * Alcance de la landing
+ *
+ * El rediseño de la landing usa Figtree para el texto y Outfit para los
+ * títulos. Se limitan a `.landing` a propósito: el panel y el admin siguen
+ * con Inter, así el cambio de estilo no se filtra a las pantallas internas.
+ * ------------------------------------------------------------------------- */
+.landing {
+  font-family: var(--font-cuerpo);
+  background-color: #ffffff;
+}
+
+.landing h1,
+.landing h2,
+.landing h3,
+.landing h4 {
+  font-family: var(--font-titulo);
+  letter-spacing: -0.015em;
+}
+
+.landing ::selection {
+  background-color: #4f46e5;
+  color: #ffffff;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
