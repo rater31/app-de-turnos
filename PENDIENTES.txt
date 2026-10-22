@@ -34,14 +34,14 @@ importa; lo demas se puede hacer en cualquier momento.
     FALTA terminar la config para que salga el mail: ver el pendiente "[ ]
     Recordatorios: falta la ultima config" mas abajo.
 
-[ ] Recordatorios: falta la ultima config (el disparo ya funciona)
-    El problema del cron quedo resuelto (ver el pendiente cerrado de arriba),
-    pero sin esto no se envia ningun mail:
+[x] ~~Recordatorios: falta la ultima config~~ — PARCIAL 2026-10-22
+    El cron quedo reapuntado al secret correcto (cron.unschedule/schedule con
+    cron.schedule; jobid 4 activo). El disparo funciona con el CRON_SECRET nuevo.
+    FALTA para que se envien mails:
       - supabase secrets set RESEND_API_KEY=... (y opcional EMAIL_FROM=...).
       - GitHub > Settings > Secrets and variables > Actions: cargar el secret
         SUPABASE_CRON_SECRET con el valor nuevo y la var SUPABASE_PROJECT_REF=
         pdbapryhmiaohdtwqatd; recien ahi "Reminders manual" > Run workflow anda.
-        Si el secret se perdio, se regenera y se repite el Paso 1 del plan.
 
 [x] ~~Que es la Edge Function "bright-api"~~ — RESUELTO 2026-10-13
     Es "reminders" desplegada con el nombre equivocado. Por eso el cron a
@@ -76,28 +76,31 @@ importa; lo demas se puede hacer en cualquier momento.
 -- proyecto pdbapryhmiaohdtwqatd linkeado; se uso la Management API con un access
 -- token). No se hace deploy sin autorizacion explicita.
 
-Paso 1. Reapuntar el cron — HECHO 2026-10-16 (via Management API):
+Paso 1. Reapuntar el cron — HECHO 2026-10-16 + 2026-10-22 (via Management API):
   NO usar "update cron.job" desde el Management API: da
   "42501 permission denied for table job". Se hizo con cron.schedule, que corre
   como SECURITY DEFINER:
+    select cron.unschedule('reminders-cada-15min');
     select cron.schedule('reminders-cada-15min', '*/15 * * * *',
-      $job$ select net.http_post(
-              url := 'https://pdbapryhmiaohdtwqatd.supabase.co/functions/v1/bright-api',
+      'select net.http_post(
+              url := ''https://pdbapryhmiaohdtwqatd.supabase.co/functions/v1/bright-api'',
               headers := jsonb_build_object(
-                'Authorization', 'Bearer <CRON_SECRET real>',
-                'Content-Type', 'application/json'),
-              body := '{}') as request_id; $job$);
+                ''Authorization'', ''Bearer <CRON_SECRET real>'',
+                ''Content-Type'', ''application/json''),
+              body := ''{}'') as request_id;');
   Ademas hubo que poner verify_jwt = false en bright-api y setear CRON_SECRET
-  (ninguno de los dos estaba).
+  (ninguno de los dos estaba). El 2026-10-22 se corrigio el secret que tenia
+  el cron (paso de 1e801edd... al CRON_SECRET actual) creando jobid 4.
   - Verificar: select jobid, jobname, schedule, active, command from cron.job;
 
-Paso 2. Probar el envio — PARCIAL 2026-10-16:
-  - Hecho: GET /bright-api con el CRON_SECRET -> HTTP 200 {"ok":true,...,
-    "note":"RESEND_API_KEY no configurada"}.
+Paso 2. Probar el envio — PARCIAL 2026-10-22:
+  - Hecho: cron reapuntado con el CRON_SECRET correcto (jobid 4 activo).
+  - Hecho (16-oct): GET /bright-api con el CRON_SECRET respondia con auth OK pero
+    sin RESEND_API_KEY.
   - FALTA: supabase secrets set RESEND_API_KEY=... (y opcional EMAIL_FROM).
   - FALTA: GitHub > Settings > Secrets and variables > Actions: cargar
-    SUPABASE_CRON_SECRET con el secret nuevo y var SUPABASE_PROJECT_REF=
-    pdbapryhmiaohdtwqatd. Recien ahi "Reminders manual" > Run workflow anda.
+    SUPABASE_CRON_SECRET con el secret nuevo (5909620e9f2bcc656f3b41ea228e6a5876944beaa516ae11eb18a36b7a9d08cd)
+    y var SUPABASE_PROJECT_REF=pdbapryhmiaohdtwqatd. Recien ahi "Reminders manual" > Run workflow anda.
 
 Paso 3. Correr la migracion:
   - Pegar supabase/migration_react.sql ENTERO en el SQL Editor (idempotente).
