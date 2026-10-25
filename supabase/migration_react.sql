@@ -399,6 +399,13 @@ grant execute on function public.booked_slots(uuid, date, uuid, uuid) to anon, a
 --
 -- NOTA: insertar en auth.users directamente requiere que la función tenga los
 -- privilegios del owner (postgres). El email queda confirmado de una.
+--
+-- OJO con el search_path: en Supabase pgcrypto (crypt/gen_salt) NO está en
+-- public sino en el schema "extensions". Con `set search_path = public, pg_temp`
+-- el alta fallaba con "function public.gen_salt(unknown) does not exist" (y lo
+-- mismo con el `public.` explícito delante de crypt/gen_salt). Por eso se agrega
+-- extensions al search_path y se llaman sin calificar: así funciona tanto si
+-- pgcrypto vive en extensions (Supabase) como si vive en public.
 create or replace function public.onboard_tenant(
   p_email text,
   p_password text,
@@ -410,7 +417,7 @@ create or replace function public.onboard_tenant(
 returns jsonb
 language plpgsql
 security definer
-set search_path = public, pg_temp
+set search_path = public, extensions, pg_temp
 as $$
 declare
   v_email text := lower(btrim(p_email));
@@ -454,25 +461,52 @@ begin
   end if;
 
   -- Crea el usuario de Supabase Auth (email confirmado, password hasheado con bcrypt)
+  --
+  -- OJO con los *_token: GoTrue escanea esos campos como string y si quedan NULL
+  -- el login responde 500 "Database error querying schema". El insert directo no
+  -- toma los defaults de GoTrue, así que se mandan vacíos a mano. Verificado
+  -- 2026-10-25: sin esto el alta andaba pero el signInWithPassword fallaba.
   begin
     insert into auth.users (
       instance_id, id, aud, role, email, encrypted_password,
       email_confirmed_at, raw_app_meta_data, raw_user_meta_data,
+      confirmation_token, recovery_token, email_change, email_change_token_new,
       created_at, updated_at
     )
     values (
       '00000000-0000-0000-0000-000000000000', v_user_id,
       'authenticated', 'authenticated', v_email,
-      public.crypt(p_password, public.gen_salt('bf')),
+      crypt(p_password, gen_salt('bf')),
       now(),
       '{"provider":"email","providers":["email"]}',
       jsonb_build_object('full_name', p_full_name),
+      '', '', '', '',
       now(), now()
     );
   exception
     when unique_violation then
       raise exception 'Ya existe una cuenta con ese email.' using errcode = 'P0001';
   end;
+
+  -- Identidad del proveedor email, igual que si el usuario se hubiera creado con
+  -- auth.signUp(). GoTrue no la exige para el login por password (probado), pero
+  -- sin esta fila el usuario aparece sin identidades en Auth y algunas
+  -- operaciones de la API de Auth quedan incompletas.
+  insert into auth.identities (
+    user_id, provider_id, identity_data, provider,
+    last_sign_in_at, created_at, updated_at
+  )
+  values (
+    v_user_id, v_user_id::text,
+    jsonb_build_object(
+      'sub', v_user_id::text,
+      'email', v_email,
+      'full_name', btrim(p_full_name),
+      'email_verified', true,
+      'phone_verified', false
+    ),
+    'email', now(), now(), now()
+  );
 
   -- Crea el tenant. Plan "gratis" sin prueba; plan "pro" con 7 días de prueba
   -- (igual que onboardTenant de api.ts).

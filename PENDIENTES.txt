@@ -7,6 +7,25 @@ importa; lo demas se puede hacer en cualquier momento.
 
 == 1. BLOQUEA EL PRODUCTO ==
 
+[x] ~~/registro fallaba con "function public.gen_salt(unknown) does not exist"~~ — CERRADO 2026-10-25
+    Eran DOS bugs en el RPC onboard_tenant; el alta nunca habia funcionado.
+      1) pgcrypto en Supabase vive en el schema "extensions" (verificado:
+         pgcrypto.nspname = 'extensions'), pero la funcion tenia
+         `set search_path = public, pg_temp` y llamaba `public.crypt(...)` /
+         `public.gen_salt(...)` -> "function public.gen_salt(unknown) does not
+         exist". Fix: search_path = public, extensions, pg_temp y crypt/gen_salt
+         sin calificar (funciona tambien si pgcrypto esta en public).
+      2) Aun arreglando (1), el alta pasaba pero el login fallaba con HTTP 500
+         "Database error querying schema": el insert directo en auth.users dejaba
+         NULL confirmation_token, recovery_token, email_change y
+         email_change_token_new, y GoTrue los escanea como string. Fix: se
+         insertan '' y ademas se crea la fila de auth.identities (provider email)
+         como en auth.signUp().
+    Aplicado en produccion y probado de punta a punta: RPC con anon key +
+    signInWithPassword OK, con tenant, perfil owner, staff, suscripcion y
+    horarios correctos. Los tenants/usuarios de prueba se borraron despues; no
+    quedo data.
+
 [x] ~~AVERIGUAR QUE PASO CON LOS TENANTS~~ — CERRADO 2026-10-13
     Confirmado por el owner: los negocios que habia se borraron a proposito
     desde el panel de admin. No se perdio data real; los tenants eran de prueba.
@@ -121,6 +140,15 @@ Paso 4. Probar el borrado de negocio:
 
 == 2. Sin verificar ==
 
+[x] ~~Horarios mostraban "Invalid Date a Invalid Date"~~ — CERRADO 2026-10-25
+    En /panel/horarios cada fila decía "Lunes · Invalid Date a Invalid Date"
+    (y lo mismo para los horarios cargados a un profesional). Causa: las
+    columnas business_hours.opens/closes son `time` y PostgREST las manda como
+    "09:00:00"; formatTime (src/lib/utils.ts) solo aceptaba "09:00", así que
+    caía en new Date("09:00:00") -> Invalid Date. Ahora acepta HH:MM:SS y
+    devuelve 24 h (hourCycle h23), sin "a. m./p. m.".
+    FALTA: deploy a Netlify para que se vea en producción (build local OK).
+
 [ ] prevent_overlap en UPDATE (reprogramar un turno)
     El fix "b.id <> new.id" esta aplicado y se verifico por la via del insert publico,
     pero nunca se probo el UPDATE de starts_at/ends_at de punta a punta porque no habia
@@ -214,9 +242,11 @@ Paso 4. Probar el borrado de negocio:
     muestra al recargar, que /abonar/<slug> muestra el monto nuevo, y que al
     validar un pago en /admin/pagos el tenant queda pro y con 30 dias de periodo.
 
-[ ] Probar /registro de punta a punta
-    No se probo el alta de un negocio desde la UI. Ojo: onboard_tenant crea un
-    tenant nuevo, asi que ensucia la base antes de hacerlo.
+[x] ~~Probar /registro de punta a punta~~ — CERRADO 2026-10-25
+    Probado via API con la anon key (RPC onboard_tenant + signInWithPassword):
+    alta y login OK, con tenant, perfil owner, staff, suscripcion y horarios.
+    El tenant/usuario de prueba se borro. Falta solo el click real en la UI,
+    pero el frontend llama exactamente a esas dos cosas (RegistroForm.tsx).
 
 [ ] Documentacion que miente (sin tocar)
     REVISION_TECNICA.md tiene 4 afirmaciones falsas: dice que el build conserva

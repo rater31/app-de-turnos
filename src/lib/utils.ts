@@ -39,15 +39,28 @@ export function formatDate(date: Date | string): string {
 }
 
 export function formatTime(time: string | Date): string {
-  // Soporta "14:30" o una fecha/mañana.
-  if (typeof time === "string" && /^\d{2}:\d{2}$/.test(time)) {
-    const [h, m] = time.split(":");
-    const date = new Date();
-    date.setHours(Number(h), Number(m), 0, 0);
-    return date.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
+  const options: Intl.DateTimeFormatOptions = {
+    hour: "2-digit",
+    minute: "2-digit",
+    // Sin hourCycle el locale es-AR, con solo hora+minutos, usa "09:00 a. m.".
+    // La app es 24 h (y así los horarios no quedan "09:00 a. m. a 06:00 p. m.").
+    hourCycle: "h23",
+  };
+
+  if (typeof time !== "string") {
+    return time.toLocaleTimeString("es-AR", options);
   }
-  const d = typeof time === "string" ? new Date(time) : time;
-  return d.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
+
+  const raw = time.trim();
+  // Acepta "14:30" y también "14:30:00" / "14:30:00.123". Las columnas `time`
+  // de Postgres (business_hours.opens/closes) llegan por PostgREST con segundos,
+  // así que antes el regex fallaba y caía en new Date("09:00:00") -> Invalid Date.
+  const match = /^(\d{1,2}):(\d{2})(?::\d{2}(?:\.\d+)?)?$/.exec(raw);
+  const date = match
+    ? new Date(2000, 0, 1, Number(match[1]), Number(match[2]))
+    : new Date(raw);
+  if (Number.isNaN(date.getTime())) return raw;
+  return date.toLocaleTimeString("es-AR", options);
 }
 
 export function formatCurrency(value: number): string {
