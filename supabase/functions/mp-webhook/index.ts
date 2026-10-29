@@ -15,8 +15,11 @@
 // consultarlo en la API de MP con el access token, y se valida que:
 //   - external_reference apunte a una fila de subscription_payments;
 //   - el monto y la moneda coincidan con lo que se cobró;
-//   - la fila siga 'pending' (idempotencia: MP reintenta los avisos y el mismo
-//     pago puede llegar varias veces; solo el primero extiende el período).
+//   - la fila siga 'pending' o 'cancelled' (idempotencia: MP reintenta los
+//     avisos y el mismo pago puede llegar varias veces; solo el primero
+//     extiende el período).
+// Si el monto no coincide, la fila queda 'pending' con mp_status 'approved' y
+// /admin/pagos ofrece "Validar" para resolverlo a mano.
 //
 // Secrets:
 //   MP_ACCESS_TOKEN    -> el mismo que usa mp-checkout.
@@ -75,7 +78,15 @@ async function signatureOk(req: Request, dataId: string): Promise<boolean> {
   if (requestId) manifest += `request-id:${requestId};`;
   manifest += `ts:${ts};`;
   const expected = await hmacHex(MP_WEBHOOK_SECRET, manifest);
-  return expected === v1;
+  return timingSafeEqual(expected, v1.toLowerCase());
+}
+
+// Comparación en tiempo constante, para no filtrar la firma por timing.
+function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
 }
 
 Deno.serve(async (req) => {
@@ -184,8 +195,14 @@ Deno.serve(async (req) => {
   const periodStart = currentEnd && currentEnd > now ? currentEnd : now;
   const periodEnd = new Date(periodStart.getTime() + PERIOD_DAYS * DAY_MS);
 
-  // El filtro status = 'pending' hace de candado: si dos avisos del mismo pago
-  // llegan a la vez, solo uno actualiza la fila y sigue de largo.
+  // El filtro de status hace de candado: si dos avisos del mismo pago llegan a
+  // la vez, solo uno actualiza la fila y sigue de largo. 'cancelled' entra
+  // porque el superadmin puede haber rechazado en /admin/pagos un checkout que
+  // parecía abandonado y que el cliente terminó pagando: la plata entró, así
+  // que se acredita igual.
+  if (row.status === "cancelled") {
+    console.warn("mp-webhook: pago aprobado sobre una fila cancelada, se acredita", row.id);
+  }
   const { data: claimed } = await service
     .from("subscription_payments")
     .update({
@@ -195,7 +212,7 @@ Deno.serve(async (req) => {
       period_end: periodEnd.toISOString(),
     })
     .eq("id", row.id)
-    .eq("status", "pending")
+    .in("status", ["pending", "cancelled"])
     .select("id");
   if (!claimed || claimed.length === 0) {
     return json({ ok: true, status: "already_processed" });

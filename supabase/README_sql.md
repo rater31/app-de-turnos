@@ -182,4 +182,3 @@ supabase functions deploy mp-webhook --no-verify-jwt
 El access token **nunca** va en una variable `VITE_*`. Volver al sitio con
 `?mp=success` no activa nada: solo el webhook acredita. Las devoluciones y
 contracargos marcan la fila como `refunded` pero no bajan el plan solos.
-

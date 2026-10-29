@@ -47,9 +47,14 @@ export function AdminPagosPage() {
     }
   }
 
-  // Los de Mercado Pago se acreditan solos (mp-webhook): no hay nada que validar.
+  // Los de Mercado Pago se acreditan solos (mp-webhook): solo cuentan los que
+  // MP aprobó y el webhook no pudo acreditar.
   const pendientes =
-    payments?.filter((p) => p.status === "pending" && p.method === "transfer").length ?? 0;
+    payments?.filter(
+      (p) =>
+        p.status === "pending" &&
+        (p.method === "transfer" || p.mp_status === "approved"),
+    ).length ?? 0;
 
   return (
     <div className="space-y-6">
@@ -93,6 +98,11 @@ function PaymentRow({
 }) {
   const pending = pendingId === payment.id;
   const st = STATUS_LABEL[payment.status] ?? STATUS_LABEL.pending;
+  // MP lo aprobó pero mp-webhook no lo acreditó (monto o moneda distintos):
+  // la plata entró y hay que resolverlo a mano.
+  const mpApprovedStuck =
+    payment.method === "mercadopago" && payment.status === "pending" && payment.mp_status === "approved";
+  const canValidate = payment.method === "transfer" || mpApprovedStuck;
 
   return (
     <div className="flex flex-wrap items-start gap-4 px-5 py-4">
@@ -122,7 +132,12 @@ function PaymentRow({
           {" · "}
           {new Date(payment.created_at).toLocaleString("es-AR")}
         </p>
-        {payment.method === "mercadopago" && payment.status === "pending" && (
+        {mpApprovedStuck ? (
+          <p className="mt-0.5 text-xs font-medium text-rose-700">
+            Aprobado en Mercado Pago pero no se acreditó solo (el monto o la moneda no
+            coinciden). Revisalo en MP y validalo a mano.
+          </p>
+        ) : payment.method === "mercadopago" && payment.status === "pending" && (
           <p className="mt-0.5 text-xs text-slate-500">
             {payment.mp_status
               ? `Estado en Mercado Pago: ${payment.mp_status}`
@@ -144,15 +159,15 @@ function PaymentRow({
 
       {payment.status === "pending" && (
         <div className="flex shrink-0 flex-wrap gap-2">
-          {payment.method === "transfer" && (
-          <button
-            type="button"
-            disabled={pending}
-            onClick={() => onProcesar(payment, "paid")}
-            className="rounded-lg bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-600 disabled:opacity-60"
-          >
-            {pending ? "…" : "Validar"}
-          </button>
+          {canValidate && (
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() => onProcesar(payment, "paid")}
+              className="rounded-lg bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-600 disabled:opacity-60"
+            >
+              {pending ? "…" : "Validar"}
+            </button>
           )}
           <button
             type="button"
