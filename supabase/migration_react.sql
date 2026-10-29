@@ -15,6 +15,7 @@
 --  11) (retirado) la corrección de delete_user_data quedó en el bloque 4
 -- 12) platform_settings (precio del plan Pro editable desde /admin/planes)
 -- 13) La prueba vence a los 7 días y el acceso cae a gratis, no a blocked
+-- 14) Mercado Pago (Checkout Pro) en subscription_payments
 --
 -- Ejecutar DESPUÉS de supabase/schema.sql. Re-ejecutable (idempotente).
 -- Los bloques 8, 9, 10 y 12 son correcciones sobre schema.sql y sobre los bloques
@@ -1227,3 +1228,40 @@ create policy platform_settings_update_superadmin on public.platform_settings
 -- El segundo update es opcional: con la lógica nueva ya caen a gratis al
 -- vencer la prueba, pero normalizar el plan evita que /panel/ajustes muestre
 -- "plan pro" con trial vencido.
+
+
+-- ############################################################################
+-- 14. Mercado Pago (Checkout Pro) para el plan Pro
+-- ############################################################################
+-- El cobro del plan suma Mercado Pago a la transferencia manual. Las Edge
+-- Functions mp-checkout (crea la preferencia) y mp-webhook (acredita el pago)
+-- escriben con service_role, así que no hacen falta policies nuevas: el dueño
+-- sigue viendo sus filas por subscription_payments_all y el superadmin todas.
+--
+-- method distingue el origen: 'transfer' (comprobante, validación a mano en
+-- /admin/pagos) o 'mercadopago' (lo acredita mp-webhook, sin intervención).
+-- Las filas existentes quedan como 'transfer' por el default.
+alter table public.subscription_payments
+  add column if not exists method text not null default 'transfer';
+alter table public.subscription_payments
+  add column if not exists mp_preference_id text;
+alter table public.subscription_payments
+  add column if not exists mp_payment_id text;
+alter table public.subscription_payments
+  add column if not exists mp_status text;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'subscription_payments_method_check'
+      and conrelid = 'public.subscription_payments'::regclass
+  ) then
+    alter table public.subscription_payments
+      add constraint subscription_payments_method_check
+      check (method in ('transfer', 'mercadopago'));
+  end if;
+end $$;
+
+create index if not exists subscription_payments_mp_payment_idx
+  on public.subscription_payments (mp_payment_id);

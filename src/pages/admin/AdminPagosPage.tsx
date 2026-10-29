@@ -47,7 +47,9 @@ export function AdminPagosPage() {
     }
   }
 
-  const pendientes = payments?.filter((p) => p.status === "pending").length ?? 0;
+  // Los de Mercado Pago se acreditan solos (mp-webhook): no hay nada que validar.
+  const pendientes =
+    payments?.filter((p) => p.status === "pending" && p.method === "transfer").length ?? 0;
 
   return (
     <div className="space-y-6">
@@ -99,6 +101,13 @@ function PaymentRow({
           <span className="shrink-0 rounded-full bg-indigo-50 px-2.5 py-0.5 text-xs font-medium text-indigo-700">
             Suscripción
           </span>
+          <span
+            className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${
+              payment.method === "mercadopago" ? "bg-sky-50 text-sky-700" : "bg-slate-100 text-slate-600"
+            }`}
+          >
+            {payment.method === "mercadopago" ? "Mercado Pago" : "Transferencia"}
+          </span>
           <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${st.cls}`}>
             {st.label}
           </span>
@@ -113,6 +122,14 @@ function PaymentRow({
           {" · "}
           {new Date(payment.created_at).toLocaleString("es-AR")}
         </p>
+        {payment.method === "mercadopago" && payment.status === "pending" && (
+          <p className="mt-0.5 text-xs text-slate-500">
+            {payment.mp_status
+              ? `Estado en Mercado Pago: ${payment.mp_status}`
+              : "Checkout iniciado, sin pago todavía."}{" "}
+            Se acredita solo al aprobarse.
+          </p>
+        )}
         {payment.receipt_url && (
           <a
             href={payment.receipt_url}
@@ -127,6 +144,7 @@ function PaymentRow({
 
       {payment.status === "pending" && (
         <div className="flex shrink-0 flex-wrap gap-2">
+          {payment.method === "transfer" && (
           <button
             type="button"
             disabled={pending}
@@ -135,6 +153,7 @@ function PaymentRow({
           >
             {pending ? "…" : "Validar"}
           </button>
+          )}
           <button
             type="button"
             disabled={pending}

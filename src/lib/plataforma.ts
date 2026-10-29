@@ -13,10 +13,10 @@
 // Los datos de abajo son reales y hay que manterlos actualizados a mano si la
 // cuenta cambia. El alias es la clave: no le agregues acentos ni espacios.
 //
-// TODO(MP): Mercado Pago todavía NO está integrado (no hay Checkout Pro ni
-// Planes, ver el paquete `mercadopago` en package.json que no se importa en
-// ningún lado). El cobro del plan es por transferencia manual y un humano valida
-// el comprobante desde /admin/pagos.
+// Mercado Pago (Checkout Pro) ya está integrado para el plan Pro: ver las Edge
+// Functions supabase/functions/mp-checkout y mp-webhook. Estos datos bancarios
+// quedan para quien prefiera pagar por transferencia y subir el comprobante,
+// que un humano valida desde /admin/pagos.
 
 export const PLAN_PRICE_FALLBACK = 8000;
 

@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { useSearchParams } from "react-router-dom";
 import { z } from "zod";
 import { db } from "@/lib/db/api";
 
@@ -37,6 +38,29 @@ type SubmitPlanPaymentState = {
 export default function AbonarForm(props: AbonarFormProps) {
   const [state, setState] = useState<SubmitPlanPaymentState>({});
   const [pending, setPending] = useState(false);
+  const [mpPending, setMpPending] = useState(false);
+  const [mpError, setMpError] = useState<string | null>(null);
+  // Mercado Pago vuelve a /abonar/:slug?mp=success|pending|failure. Es solo
+  // informativo: el plan lo activa mp-webhook cuando MP confirma el pago.
+  const [searchParams] = useSearchParams();
+  const mpReturn = searchParams.get("mp");
+
+  async function handleMercadoPago() {
+    setMpError(null);
+    setMpPending(true);
+    try {
+      const result = await db.createMpCheckout(props.tenantSlug);
+      if (!result.ok) {
+        setMpError(result.message);
+        setMpPending(false);
+        return;
+      }
+      window.location.assign(result.initPoint);
+    } catch {
+      setMpError("No se pudo iniciar el pago con Mercado Pago. Intentá de nuevo.");
+      setMpPending(false);
+    }
+  }
 
   // Se deriva de los datos que llegan, no de una constante importada, para que
   // el aviso funcione igual si el CBU pasa a venir de la API.
@@ -89,8 +113,8 @@ export default function AbonarForm(props: AbonarFormProps) {
           {props.tenantName} · Plan {props.plan === "pro" ? "Pro" : props.plan}
         </h1>
         <p className="mt-2 text-sm text-slate-600">
-          Transferí el monto y subí el comprobante. Te lo validamos y activamos el Pro en
-          el día.
+          Pagá con Mercado Pago y el Pro se activa al instante, o transferí y subí el
+          comprobante.
           {props.currentPeriodEnd &&
             ` Tu período actual venció el ${new Date(props.currentPeriodEnd).toLocaleDateString("es-AR")}.`}
         </p>
@@ -98,6 +122,46 @@ export default function AbonarForm(props: AbonarFormProps) {
         <div className="mt-6 rounded-2xl bg-indigo-50 p-4">
           <p className="text-sm text-slate-600">Total a abonar</p>
           <p className="text-3xl font-bold text-slate-900">{formatMoney(props.amount)} /mes</p>
+        </div>
+
+        {mpReturn === "success" && (
+          <div className="mt-4 rounded-2xl bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">
+            ✅ ¡Pago recibido! El plan Pro se activa en unos segundos, apenas Mercado Pago
+            nos confirma. Podés volver al panel.
+          </div>
+        )}
+        {mpReturn === "pending" && (
+          <div className="mt-4 rounded-2xl bg-amber-50 px-4 py-3 text-sm text-amber-700">
+            Tu pago quedó pendiente en Mercado Pago. Cuando se acredite, el plan Pro se activa
+            solo.
+          </div>
+        )}
+        {mpReturn === "failure" && (
+          <div className="mt-4 rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">
+            El pago no se completó. Podés intentarlo de nuevo o pagar por transferencia.
+          </div>
+        )}
+
+        <div className="mt-4">
+          <button
+            type="button"
+            onClick={handleMercadoPago}
+            disabled={mpPending}
+            className="w-full rounded-xl bg-sky-500 px-4 py-3 text-sm font-semibold text-white hover:bg-sky-600 disabled:opacity-50"
+          >
+            {mpPending ? "Abriendo Mercado Pago…" : "Pagar con Mercado Pago"}
+          </button>
+          <p className="mt-1 text-center text-xs text-slate-400">
+            Tarjeta, dinero en cuenta o efectivo · se activa automáticamente
+          </p>
+          {mpError && (
+            <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-700">{mpError}</p>
+          )}
+        </div>
+
+        <div className="mt-6 flex items-center gap-3 text-xs font-medium uppercase tracking-wide text-slate-400">
+          <span className="h-px flex-1 bg-slate-200" />o pagá por transferencia
+          <span className="h-px flex-1 bg-slate-200" />
         </div>
 
         {props.bank.alias_cbu ? (

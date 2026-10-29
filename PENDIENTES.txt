@@ -162,11 +162,21 @@ Paso 4. Probar el borrado de negocio:
     Ya no aplica: el TTL paso a 1 hora (src/lib/db/api.ts:76 -> 60 * 60). El
     pendiente estaba desactualizado.
 
-[ ] MercadoPago no esta integrado
-    "mercadopago": "^3.6.0" esta en dependencies pero no se importa en ningun lado.
-    El cobro es transferencia manual y un humano valida desde /admin/pagos.
-    Cuando se integre (Checkout Pro o Planes), src/lib/plataforma.ts desaparece:
-    los datos pasan a salir de la API (el precio ya salio, ver seccion 4).
+[ ] MercadoPago (Checkout Pro) para el plan Pro — CODIGO HECHO 2026-10-29
+    Rama feat/mercadopago-plan-pro. Boton "Pagar con Mercado Pago" en /abonar,
+    Edge Functions mp-checkout (crea la preferencia) y mp-webhook (acredita el
+    pago y activa el Pro solo). La transferencia manual sigue como alternativa.
+    FALTA (nada de esto se hizo, requiere autorizacion):
+      - correr el bloque 14 de migration_react.sql en el SQL Editor;
+      - supabase secrets set MP_ACCESS_TOKEN=... APP_URL=https://<sitio>
+        (y MP_WEBHOOK_SECRET=... si se configura el webhook en el panel de MP);
+      - supabase functions deploy mp-checkout
+        supabase functions deploy mp-webhook --no-verify-jwt
+      - probar con credenciales/usuarios de prueba de MP antes de pasar a
+        las de produccion.
+    El paquete npm "mercadopago" sigue sin usarse: las funciones llaman a la API
+    REST con fetch. Se puede sacar de dependencies.
+    Las senas de reservas siguen por comprobante (seller_accounts sin usar).
 
 [ ] Prop muerta: subscriptionStatus
     El form dejo de recibirla, pero el campo sigue produciendose en api.ts

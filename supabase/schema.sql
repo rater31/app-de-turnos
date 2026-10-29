@@ -270,7 +270,7 @@ create table if not exists public.subscriptions (
   updated_at timestamptz not null default now()
 );
 
--- Pagos de la suscripción al SaaS (transferencia manual + comprobante)
+-- Pagos de la suscripción al SaaS (transferencia manual + comprobante, o Mercado Pago)
 create table if not exists public.subscription_payments (
   id uuid primary key default gen_random_uuid(),
   tenant_id uuid not null references public.tenants (id) on delete cascade,
@@ -280,9 +280,16 @@ create table if not exists public.subscription_payments (
   receipt_url text,
   period_start timestamptz,
   period_end timestamptz,
+  -- Mercado Pago (Checkout Pro). 'transfer' = comprobante manual de siempre.
+  method text not null default 'transfer' check (method in ('transfer', 'mercadopago')),
+  mp_preference_id text,
+  mp_payment_id text,
+  mp_status text,
   created_at timestamptz not null default now(),
   processed_at timestamptz
 );
+create index if not exists subscription_payments_mp_payment_idx
+  on public.subscription_payments (mp_payment_id);
 
 -- ----------------------------------------------------------------------------
 -- CONFIGURACIÓN DE LA PLATAFORMA (singleton)

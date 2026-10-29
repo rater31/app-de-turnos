@@ -1011,6 +1011,32 @@ export async function createSubscriptionPayment(input: {
   return { ok: true };
 }
 
+// Mercado Pago (Checkout Pro): la Edge Function mp-checkout crea la fila
+// 'pending' y la preferencia con el access token (que nunca llega al
+// navegador) y devuelve la URL del checkout. El pago lo acredita mp-webhook;
+// volver al back_url con ?mp=success no activa nada por sí solo.
+export async function createMpCheckout(
+  slug: string,
+): Promise<{ ok: true; initPoint: string } | { ok: false; message: string }> {
+  const { data: session } = await supabaseClient.auth.getSession();
+  if (!session.session) {
+    return { ok: false, message: "Entrá con la cuenta del dueño del negocio para pagar el plan." };
+  }
+  const { data, error } = await supabaseClient.functions.invoke("mp-checkout", {
+    body: { slug },
+  });
+  if (error || !data?.ok || !data.init_point) {
+    // functions.invoke pone el body del error en error.context (Response).
+    let message: string | undefined = data?.error;
+    const ctx = (error as { context?: Response } | null)?.context;
+    if (!message && ctx && typeof ctx.json === "function") {
+      message = await ctx.json().then((b: { error?: string }) => b?.error).catch(() => undefined);
+    }
+    return { ok: false, message: message ?? "No se pudo iniciar el pago con Mercado Pago." };
+  }
+  return { ok: true, initPoint: data.init_point as string };
+}
+
 export async function listSubscriptionPayments(): Promise<SubscriptionPaymentRow[]> {
   const { data } = await supabaseClient
     .from("subscription_payments")
@@ -1154,6 +1180,8 @@ export type AdminPaymentRow = {
   tenant_slug: string;
   owner_email: string | null;
   owner_name: string | null;
+  method: "transfer" | "mercadopago";
+  mp_status: string | null;
   created_at: string;
   processed_at: string | null;
 };
@@ -1170,6 +1198,8 @@ export async function listAdminPayments(): Promise<AdminPaymentRow[]> {
     status: string;
     receipt_url: string | null;
     tenant_id: string;
+    method?: string | null;
+    mp_status?: string | null;
     created_at: string;
     processed_at: string | null;
     tenants?: {
@@ -1192,6 +1222,8 @@ export async function listAdminPayments(): Promise<AdminPaymentRow[]> {
       tenant_slug: p.tenants?.slug ?? "",
       owner_email: owner?.email ?? null,
       owner_name: owner?.full_name ?? null,
+      method: p.method === "mercadopago" ? "mercadopago" : "transfer",
+      mp_status: p.mp_status ?? null,
       created_at: p.created_at,
       processed_at: p.processed_at ?? null,
     };
@@ -1762,6 +1794,7 @@ export const db = {
   listTenants,
   setTenantStatus,
   createSubscriptionPayment,
+  createMpCheckout,
   listSubscriptionPayments,
   setSubscriptionPaymentStatus,
   setSubscriptionStatus,

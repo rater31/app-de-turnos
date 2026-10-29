@@ -157,3 +157,29 @@ Con `@supabase/supabase-js` (cliente básico, anon key, sin service role):
   turnos cercanos), el RPC compara las reservas contra la hora local de
   `tenants.timezone` (IANA; default `America/Argentina/Buenos_Aires`) y la Edge
   Function usa esa zona para calcular la ventana de envío.
+
+## Mercado Pago (plan Pro)
+
+El plan Pro se puede pagar con Mercado Pago (Checkout Pro) además de la
+transferencia manual.
+
+| Pieza | Qué hace |
+| --- | --- |
+| `migration_react.sql` bloque 14 | Agrega `method`, `mp_preference_id`, `mp_payment_id` y `mp_status` a `subscription_payments`. |
+| Edge Function `mp-checkout` | Valida que quien llama sea del negocio, inserta la fila `pending`, crea la preferencia y devuelve `init_point`. |
+| Edge Function `mp-webhook` | Recibe el aviso de MP, consulta el pago en la API, valida monto/moneda y, si está `approved`, marca la fila `paid` y activa la suscripción por 30 días (se suman al período vigente si todavía tiene días). |
+
+Puesta en marcha:
+
+```bash
+supabase secrets set MP_ACCESS_TOKEN=APP_USR-... APP_URL=https://tu-sitio.netlify.app
+# opcional, recomendado: clave secreta del webhook del panel de MP
+supabase secrets set MP_WEBHOOK_SECRET=...
+supabase functions deploy mp-checkout
+supabase functions deploy mp-webhook --no-verify-jwt
+```
+
+El access token **nunca** va en una variable `VITE_*`. Volver al sitio con
+`?mp=success` no activa nada: solo el webhook acredita. Las devoluciones y
+contracargos marcan la fila como `refunded` pero no bajan el plan solos.
+
