@@ -38,6 +38,10 @@
 --   - Bloque 1 (2026-10-29): create_public_booking valida el horario de
 --     atención (horarios propios del profesional o, si no tiene, los del
 --     negocio). Alcanza con volver a correr solo el bloque 1.
+--   - Bloque 6 (2026-10-29): las policies de comprobantes usaban `name` suelto
+--     dentro del EXISTS sobre tenants y se resolvía como tenants.name, así que
+--     las reservas públicas no podían subir el comprobante de la seña. Alcanza
+--     con volver a correr solo las policies comprobantes_* del bloque 6.
 -- Todos los comentarios están en español. Bloques separados con -- #####
 -- ============================================================================
 
@@ -832,6 +836,12 @@ create policy logos_all_superadmin_react on storage.objects
 -- REACT-MIGRATION: comprobantes, solo owner/staff del tenant leen.
 -- Los paths válidos empiezan con el tenant_id (comprobantes de plan) o con el
 -- slug (comprobantes de reserva pública).
+--
+-- OJO: dentro de los EXISTS (select ... from public.tenants t) hay que escribir
+-- objects.name. Un `name` suelto ahí se resuelve contra tenants.name (el nombre
+-- del negocio), no contra el archivo: la condición del slug nunca se cumplía y
+-- se rechazaba toda subida de comprobante de reserva pública ("new row violates
+-- row-level security policy"), y el dueño tampoco podía ver esos comprobantes.
 drop policy if exists comprobantes_select_tenant_react on storage.objects;
 create policy comprobantes_select_tenant_react on storage.objects
   for select to authenticated
@@ -842,7 +852,7 @@ create policy comprobantes_select_tenant_react on storage.objects
       or exists (
         select 1 from public.tenants t
         where t.id = public.current_tenant_id()
-          and t.slug = (storage.foldername(name))[1]
+          and t.slug = (storage.foldername(objects.name))[1]
       )
     )
   );
@@ -858,7 +868,7 @@ create policy comprobantes_insert_anon_react on storage.objects
     and right(name, 1) <> '/'
     and exists (
       select 1 from public.tenants t
-      where t.slug = (storage.foldername(name))[1]
+      where t.slug = (storage.foldername(objects.name))[1]
         and t.status = 'active'
     )
   );
@@ -875,7 +885,7 @@ create policy comprobantes_insert_tenant_react on storage.objects
       or exists (
         select 1 from public.tenants t
         where t.id = public.current_tenant_id()
-          and t.slug = (storage.foldername(name))[1]
+          and t.slug = (storage.foldername(objects.name))[1]
       )
     )
   );
@@ -890,7 +900,7 @@ create policy comprobantes_update_tenant_react on storage.objects
       or exists (
         select 1 from public.tenants t
         where t.id = public.current_tenant_id()
-          and t.slug = (storage.foldername(name))[1]
+          and t.slug = (storage.foldername(objects.name))[1]
       )
     )
   )
@@ -901,7 +911,7 @@ create policy comprobantes_update_tenant_react on storage.objects
       or exists (
         select 1 from public.tenants t
         where t.id = public.current_tenant_id()
-          and t.slug = (storage.foldername(name))[1]
+          and t.slug = (storage.foldername(objects.name))[1]
       )
     )
   );
@@ -916,7 +926,7 @@ create policy comprobantes_delete_tenant_react on storage.objects
       or exists (
         select 1 from public.tenants t
         where t.id = public.current_tenant_id()
-          and t.slug = (storage.foldername(name))[1]
+          and t.slug = (storage.foldername(objects.name))[1]
       )
     )
   );

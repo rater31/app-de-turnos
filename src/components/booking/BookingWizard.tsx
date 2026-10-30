@@ -715,7 +715,7 @@ export default function BookingWizard({ tenant, services, staff, serviceStaff, h
                               className="block w-full cursor-pointer rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 file:mr-3 file:rounded-lg file:border-0 file:bg-indigo-50 file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-indigo-700"
                             />
                             {receiptName && !receiptError && (
-                              <p className="mt-1 text-xs text-emerald-600">Adjunto: {receiptName}</p>
+                              <p className="mt-1 break-all text-xs text-emerald-600">Adjunto: {receiptName}</p>
                             )}
                             {receiptError && <p className="mt-1 text-xs text-red-600">{receiptError}</p>}
                           </div>
