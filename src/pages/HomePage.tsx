@@ -176,6 +176,7 @@ function buildPlanes(planPrice: string) {
       slug: "gratis",
       nombre: "Gratis",
       precio: "$0",
+      periodo: "para siempre",
       detalle: "Para arrancar y validar",
       featured: false,
       items: [
@@ -191,7 +192,8 @@ function buildPlanes(planPrice: string) {
       slug: "pro",
       nombre: "Pro",
       precio: planPrice,
-      detalle: "/mes por negocio",
+      periodo: "/mes por negocio",
+      detalle: "Para el negocio que ya está creciendo",
       featured: true,
       items: [
         "Profesionales ilimitados",
@@ -682,7 +684,12 @@ function Planes({ planPrice }: { planPrice: string }) {
                   <p className={plan.featured ? "mt-1 text-sm text-white/50" : "mt-1 text-sm text-tinta-suave"}>
                     {plan.detalle}
                   </p>
-                  <p className="mt-6 text-5xl font-bold tracking-tight">{plan.precio}</p>
+                  <p className="mt-6 flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                    <span className="text-4xl font-bold tracking-tight sm:text-5xl">{plan.precio}</span>
+                    <span className={plan.featured ? "text-sm text-white/50" : "text-sm text-tinta-suave"}>
+                      {plan.periodo}
+                    </span>
+                  </p>
 
                   <ul className="mt-8 space-y-3.5 text-sm">
                     {plan.items.map((item) => (
