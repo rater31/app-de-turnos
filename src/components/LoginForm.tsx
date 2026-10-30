@@ -1,6 +1,7 @@
-import { useState, type FormEvent } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useEffect, useState, type FormEvent } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { z } from "zod";
+import { useAuth } from "@/lib/auth";
 import { db } from "@/lib/db/api";
 import { supabaseClient } from "@/lib/supabase/client";
 
@@ -18,6 +19,22 @@ export default function LoginForm() {
   const [pending, setPending] = useState(false);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const auth = useAuth();
+  // Destino al que ir apenas AuthProvider tenga cargada la sesión nueva.
+  // Navegar justo después de signInWithPassword hacía que los guards vieran
+  // todavía user = null (AuthProvider carga en paralelo) y rebotaran a /login:
+  // el "tengo que loguearme dos veces".
+  const [redirect, setRedirect] = useState<{ to: string; userId: string } | null>(null);
+
+  useEffect(() => {
+    if (redirect && !auth.loading && auth.user?.id === redirect.userId) {
+      navigate(redirect.to, { replace: true });
+    }
+  }, [redirect, auth.loading, auth.user, navigate]);
+
+  function goTo(to: string, userId: string) {
+    setRedirect({ to, userId });
+  }
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -40,6 +57,7 @@ export default function LoginForm() {
       });
       if (error || !data.user) {
         setState({ message: "Email o contraseña incorrectos." });
+        setPending(false);
         return;
       }
 
@@ -51,10 +69,11 @@ export default function LoginForm() {
         account.tenant?.status !== "active"
       ) {
         if (account.tenant?.slug) {
-          navigate(`/abonar/${account.tenant.slug}`);
+          goTo(`/abonar/${account.tenant.slug}`, data.user.id);
           return;
         }
         setState({ message: "Tu negocio está deshabilitado. Contactá al administrador." });
+        setPending(false);
         return;
       }
 
@@ -71,14 +90,13 @@ export default function LoginForm() {
         !next.startsWith("//") &&
         (!isSuperadmin || next === "/admin" || next.startsWith("/admin/"))
       ) {
-        navigate(next);
+        goTo(next, data.user.id);
         return;
       }
 
-      navigate(isSuperadmin ? "/admin" : "/panel");
+      goTo(isSuperadmin ? "/admin" : "/panel", data.user.id);
     } catch {
       setState({ message: "No se pudo iniciar sesión. Intentá de nuevo." });
-    } finally {
       setPending(false);
     }
   }
@@ -105,9 +123,14 @@ export default function LoginForm() {
       </div>
 
       <div>
-        <label htmlFor="password" className="mb-1 block text-sm font-medium text-slate-700">
-          Contraseña
-        </label>
+        <div className="mb-1 flex items-center justify-between">
+          <label htmlFor="password" className="block text-sm font-medium text-slate-700">
+            Contraseña
+          </label>
+          <Link to="/recuperar" className="text-xs font-medium text-indigo-600 hover:text-indigo-500">
+            ¿Olvidaste tu contraseña?
+          </Link>
+        </div>
         <input
           type="password"
           name="password"

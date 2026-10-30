@@ -30,6 +30,11 @@ const AdminUsuariosPage = lazy(() =>
 const AdminPlanesPage = lazy(() =>
   import("@/pages/admin/AdminPlanesPage").then((m) => ({ default: m.AdminPlanesPage }))
 );
+const AdminAjustesPage = lazy(() =>
+  import("@/pages/admin/AdminAjustesPage").then((m) => ({ default: m.AdminAjustesPage }))
+);
+const RecuperarPage = lazy(() => import("@/pages/RecuperarPage"));
+const RestablecerPage = lazy(() => import("@/pages/RestablecerPage"));
 
 export function App() {
   return (
@@ -49,6 +54,8 @@ export function App() {
           <Route path="/:slug" element={<BookingPage />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/registro" element={<RegistroPage />} />
+          <Route path="/recuperar" element={<RecuperarPage />} />
+          <Route path="/restablecer" element={<RestablecerPage />} />
           <Route
             path="/abonar/:slug"
             element={
@@ -80,6 +87,7 @@ export function App() {
             <Route path="suscripciones" element={<AdminSuscripcionesPage />} />
             <Route path="usuarios" element={<AdminUsuariosPage />} />
             <Route path="planes" element={<AdminPlanesPage />} />
+            <Route path="ajustes" element={<AdminAjustesPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

@@ -23,3 +23,17 @@ export const supabaseClient = createClient(
     },
   },
 );
+
+// /restablecer solo deja elegir contraseña nueva si la sesión vino del link de
+// "Olvidé mi contraseña", no con cualquier sesión abierta (eso salteaba el
+// pedido de contraseña actual de Ajustes). Supabase avisa con el evento
+// PASSWORD_RECOVERY mientras procesa la URL al arrancar, antes de que la página
+// (lazy) monte, así que se escucha acá, apenas se crea el cliente.
+let passwordRecovery = false;
+supabaseClient.auth.onAuthStateChange((event) => {
+  if (event === "PASSWORD_RECOVERY") passwordRecovery = true;
+});
+
+export function isPasswordRecovery(): boolean {
+  return passwordRecovery;
+}

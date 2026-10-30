@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import CambiarPasswordForm from "@/components/CambiarPasswordForm";
 import NegocioForm from "@/components/panel/NegocioForm";
 import ShareButton from "@/components/ShareButton";
 import { env } from "@/lib/env";
@@ -36,6 +37,14 @@ export default function AjustesPage() {
   // distinto de "/", que no ocurre con Netlify pero no cuesta nada respetarlo.
   const base = (env.appUrl || `${window.location.origin}${import.meta.env.BASE_URL}`).replace(/\/$/, "");
   const publicUrl = `${base}/b/${tenant.slug}`;
+
+  // Pro pagado (suscripción 'active', con current_period_end del pago) y Pro
+  // de prueba (trial_ends_at del tenant, 7 días) son cosas distintas: antes se
+  // mostraba current_period_end como "prueba", y un mes pagado por Mercado
+  // Pago aparecía como una prueba de 30 días.
+  const paid = access === "pro" && subscription?.status === "active";
+  const trial = access === "pro" && !paid;
+  const formatDate = (iso: string) => new Date(iso).toLocaleDateString("es-AR");
 
   return (
     <div className="max-w-2xl space-y-6">
@@ -106,9 +115,14 @@ export default function AjustesPage() {
               </span>
               {subscription?.status ? ` · ${subscription.status}` : ""}
             </p>
-            {subscription?.current_period_end && access === "pro" && (
+            {paid && subscription?.current_period_end && (
               <p className="text-xs text-slate-400">
-                Prueba hasta el {new Date(subscription.current_period_end).toLocaleDateString("es-AR")}
+                Pagado hasta el {formatDate(subscription.current_period_end)}
+              </p>
+            )}
+            {trial && tenant.trial_ends_at && (
+              <p className="text-xs text-slate-400">
+                Prueba hasta el {formatDate(tenant.trial_ends_at)}
               </p>
             )}
             {access === "gratis" && (
@@ -123,30 +137,43 @@ export default function AjustesPage() {
                 Escribinos y lo reactivamos.
               </p>
             )}
-            {access === "pro" && tenant.plan === "pro" && (
+            {trial && (
               <p className="mt-2 max-w-md text-xs text-slate-500">
                 Tu prueba de 7 días termina el{" "}
-                {subscription?.current_period_end
-                  ? new Date(subscription.current_period_end).toLocaleDateString("es-AR")
-                  : "próximos días"}
+                {tenant.trial_ends_at ? formatDate(tenant.trial_ends_at) : "próximos días"}
                 . Después seguís en el plan Gratis: tu página sigue reservando, con 1
-                profesional y hasta 10 señas por mes. Para volver a Pro ({planPrice}/mes),
-                transferinos y lo validamos.
+                profesional y hasta 10 señas por mes. Para seguir en Pro ({planPrice}/mes),
+                pagá con Mercado Pago o por transferencia.
+              </p>
+            )}
+            {paid && (
+              <p className="mt-2 max-w-md text-xs text-slate-500">
+                Tu plan Pro está pago. Podés adelantar el mes que viene cuando quieras: si
+                pagás con Mercado Pago, los días se suman al período actual.
               </p>
             )}
           </div>
-          {access === "pro" && tenant.plan === "pro" ? (
+          {access === "pro" ? (
             <Link
               to={`/abonar/${tenant.slug}`}
               className="shrink-0 rounded-full bg-indigo-600 px-3 py-1 text-xs font-semibold text-white transition hover:bg-indigo-500"
             >
-              Activar Pro ahora
+              {paid ? "Renovar" : "Activar Pro ahora"}
             </Link>
           ) : (
             <span className="rounded-full bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700">
-              {access === "pro" ? "Plan Pro" : "Plan gratuito"}
+              Plan gratuito
             </span>
           )}
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-slate-200 bg-white">
+        <div className="border-b border-slate-100 px-5 py-4">
+          <h2 className="text-sm font-semibold text-slate-900">Contraseña</h2>
+        </div>
+        <div className="p-5">
+          <CambiarPasswordForm />
         </div>
       </div>
     </div>
