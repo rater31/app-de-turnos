@@ -39,7 +39,8 @@ export default function HorariosPage() {
       <div>
         <h1 className="text-xl font-bold text-slate-900">Horarios de atención</h1>
         <p className="text-sm text-slate-500">
-          Definí cuándo hay turnos. Si configurás para un profesional, se suman a los del negocio.
+          Definí cuándo hay turnos. Si un profesional tiene horarios propios, se usan solo esos
+          para sus turnos; si no tiene, toma los del negocio.
         </p>
       </div>
 

@@ -105,13 +105,23 @@ export default function BookingWizard({ tenant, services, staff, serviceStaff, h
     return staff.filter((s) => ids.has(s.id) && s.active);
   }, [serviceId, serviceStaff, staff]);
 
+  // Horarios que valen para el profesional elegido: si tiene horarios propios,
+  // solo esos (reemplazan a los del negocio, también los días que no trabaja);
+  // si no tiene ninguno, los del negocio. Antes se sumaban y un profesional de
+  // 9 a 13 aparecía con turnos hasta el cierre del negocio.
+  const effectiveHours = useMemo(() => {
+    const active = hours.filter((h) => h.active);
+    const own = staffId ? active.filter((h) => h.staff_id === staffId) : [];
+    return own.length > 0 ? own : active.filter((h) => h.staff_id === null);
+  }, [hours, staffId]);
+
   const days = useMemo(() => {
     const out: { key: string; label: string; weekdayLabel: string; hasHours: boolean }[] = [];
     for (let i = 0; i < 14; i++) {
       const d = new Date();
       d.setDate(d.getDate() + i);
       d.setHours(0, 0, 0, 0);
-      const hasHours = hours.some((h) => h.active && h.day_of_week === d.getDay());
+      const hasHours = effectiveHours.some((h) => h.day_of_week === d.getDay());
       out.push({
         key: dateKey(d),
         label: i === 0 ? "Hoy" : i === 1 ? "Mañana" : `${d.getDate()}/${d.getMonth() + 1}`,
@@ -120,16 +130,14 @@ export default function BookingWizard({ tenant, services, staff, serviceStaff, h
       });
     }
     return out;
-  }, [hours]);
+  }, [effectiveHours]);
 
   const slots = useMemo(() => {
     if (!selectedDate || !staffId || !service) return [];
     const day = days.find((d) => d.key === selectedDate);
     if (!day) return [];
     const weekday = new Date(`${selectedDate}T00:00:00`).getDay();
-    const list = hours
-      .filter((h) => h.active && h.day_of_week === weekday)
-      .filter((h) => h.staff_id === null || h.staff_id === staffId);
+    const list = effectiveHours.filter((h) => h.day_of_week === weekday);
     if (list.length === 0) return [];
     const resultSet = new Set<string>();
     for (const block of list) {
@@ -140,7 +148,7 @@ export default function BookingWizard({ tenant, services, staff, serviceStaff, h
       }
     }
     return Array.from(resultSet).sort();
-  }, [selectedDate, staffId, hours, service, days]);
+  }, [selectedDate, staffId, effectiveHours, service, days]);
 
   const isBooked = (slot: string) => {
     const start = new Date(`${selectedDate}T${slot}:00`);
