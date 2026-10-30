@@ -12,11 +12,14 @@ export function LoadingSpinner() {
 
 export function RequireAuth({ children }: { children: ReactNode }) {
   const { loading, user } = useAuth();
-  const { pathname } = useLocation();
+  const { pathname, search } = useLocation();
   if (loading) return <LoadingSpinner />;
   // El destino va en la query para que al loguearse el usuario vuelva a donde
   // estaba en vez de tener que volver a buscar el link (p.ej. "Ir a pagar").
-  if (!user) return <Navigate to={`/login?next=${encodeURIComponent(pathname)}`} replace />;
+  // La query original viaja también: Mercado Pago vuelve con ?mp=success.
+  if (!user) {
+    return <Navigate to={`/login?next=${encodeURIComponent(pathname + search)}`} replace />;
+  }
   return <>{children}</>;
 }
 
