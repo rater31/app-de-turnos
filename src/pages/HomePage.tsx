@@ -453,7 +453,10 @@ function Hero() {
         }}
       />
 
-      <div className="relative mx-auto grid max-w-7xl items-center gap-14 px-4 pb-20 pt-28 sm:px-6 sm:pb-24 sm:pt-36 lg:grid-cols-2 lg:gap-10">
+      {/* grid-cols-1 + min-w-0: sin columnas explícitas la única columna de
+          mobile crecía al ancho del mockup y el hero quedaba cortado a la
+          derecha (el section lo recorta con overflow-hidden). */}
+      <div className="relative mx-auto grid max-w-7xl grid-cols-1 items-center gap-14 px-4 pb-20 pt-28 sm:px-6 sm:pb-24 sm:pt-36 lg:grid-cols-2 lg:gap-10 [&>*]:min-w-0">
         <div>
           <FadeIn>
             <span className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/[0.06] px-3.5 py-1.5 text-xs font-medium text-indigo-100 backdrop-blur">
