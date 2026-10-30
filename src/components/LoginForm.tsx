@@ -60,14 +60,22 @@ export default function LoginForm() {
 
       // Destino guardado por los guards (ej. ?next=/abonar/barberia). Solo se
       // aceptan rutas internas: sin `//` ni esquemas, para no convertir el
-      // login en un open redirect.
+      // login en un open redirect. El superadmin solo respeta destinos dentro
+      // de /admin: si no, un ?next=/abonar/... que quedó de la vuelta de
+      // Mercado Pago lo deja en la página de pago en vez de en su panel.
+      const isSuperadmin = account?.profile?.role === "superadmin";
       const next = searchParams.get("next");
-      if (next && next.startsWith("/") && !next.startsWith("//")) {
+      if (
+        next &&
+        next.startsWith("/") &&
+        !next.startsWith("//") &&
+        (!isSuperadmin || next === "/admin" || next.startsWith("/admin/"))
+      ) {
         navigate(next);
         return;
       }
 
-      navigate(account?.profile?.role === "superadmin" ? "/admin" : "/panel");
+      navigate(isSuperadmin ? "/admin" : "/panel");
     } catch {
       setState({ message: "No se pudo iniciar sesión. Intentá de nuevo." });
     } finally {
