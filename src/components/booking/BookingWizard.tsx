@@ -46,6 +46,9 @@ function naiveToDate(value: string): Date {
   return new Date(value.replace(" ", "T"));
 }
 
+// En el celular, con la app instalada, este link abre la app de Mercado Pago.
+const MERCADO_PAGO_URL = "https://www.mercadopago.com.ar/";
+
 const STEPS = ["service", "staff", "time", "data"] as const;
 type Step = (typeof STEPS)[number];
 const STEP_LABELS: Record<Step, string> = {
@@ -88,6 +91,22 @@ export default function BookingWizard({ tenant, services, staff, serviceStaff, h
   const [receiptError, setReceiptError] = useState("");
   const [transferOpen, setTransferOpen] = useState(true);
   const [copied, setCopied] = useState(false);
+
+  async function copyAlias() {
+    if (!tenant.alias_cbu) return;
+    try {
+      await navigator.clipboard.writeText(tenant.alias_cbu);
+    } catch {
+      const ta = document.createElement("textarea");
+      ta.value = tenant.alias_cbu;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
 
   const requestRef = useRef(0);
 
@@ -618,27 +637,34 @@ export default function BookingWizard({ tenant, services, staff, serviceStaff, h
                                 </div>
                               )}
 
+                              {/* Mercado Pago no tiene un link para abrir una
+                                  transferencia con el alias ya cargado, pero la
+                                  app detecta el alias copiado y ofrece
+                                  transferirle. Se abre en otra pestaña para que,
+                                  al volver, el formulario siga acá y se pueda
+                                  adjuntar el comprobante. */}
                               <button
                                 type="button"
                                 onClick={async () => {
-                                  if (!tenant.alias_cbu) return;
-                                  try {
-                                    await navigator.clipboard.writeText(tenant.alias_cbu);
-                                  } catch {
-                                    const ta = document.createElement("textarea");
-                                    ta.value = tenant.alias_cbu;
-                                    document.body.appendChild(ta);
-                                    ta.select();
-                                    document.execCommand("copy");
-                                    document.body.removeChild(ta);
-                                  }
-                                  setCopied(true);
-                                  setTimeout(() => setCopied(false), 2000);
+                                  const copying = copyAlias();
+                                  window.open(MERCADO_PAGO_URL, "_blank", "noopener");
+                                  await copying;
                                 }}
-                                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+                                className="w-full rounded-lg bg-sky-500 px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-sky-600"
                               >
-                                {copied ? "¡Alias copiado!" : "Copiar alias / CVU"}
+                                Copiar alias y abrir Mercado Pago
                               </button>
+                              <button
+                                type="button"
+                                onClick={() => void copyAlias()}
+                                className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+                              >
+                                {copied ? "¡Alias copiado!" : "Solo copiar alias / CVU"}
+                              </button>
+                              <p className="mt-2 text-xs text-slate-500">
+                                En Mercado Pago tocá Transferir: la app te sugiere el alias
+                                copiado. Después volvé acá y adjuntá el comprobante.
+                              </p>
                             </div>
                           ) : (
                             <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-sm text-amber-800">

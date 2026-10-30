@@ -35,6 +35,9 @@
 --     la transacción, dejando el usuario y el negocio sin borrar) y devuelve
 --     los auth_user_ids para que la Edge Function delete-business los borre.
 --     No hace falta revertir el bloque 11: está retirado.
+--   - Bloque 1 (2026-10-29): create_public_booking valida el horario de
+--     atención (horarios propios del profesional o, si no tiene, los del
+--     negocio). Alcanza con volver a correr solo el bloque 1.
 -- Todos los comentarios están en español. Bloques separados con -- #####
 -- ============================================================================
 
@@ -100,6 +103,7 @@ declare
   v_status text;
   v_receipt_object_path text;
   v_receipt_prefix text;
+  v_has_own_hours boolean;
 begin
   -- Este RPC público solo acepta transferencias manuales pendientes. Un cliente
   -- no puede declararse un pago online ni marcarlo como pagado desde el browser.
@@ -260,6 +264,34 @@ begin
       and b.ends_at > v_starts_local
   ) then
     raise exception 'Ese horario ya fue tomado. Elegí otro.' using errcode = 'P0001';
+  end if;
+
+  -- Horario de atención: el turno tiene que caer entero dentro de un bloque de
+  -- business_hours de ese día. Misma regla que BookingWizard (effectiveHours):
+  -- si el profesional tiene horarios propios valen solo esos; si no tiene
+  -- ninguno, los del negocio (staff_id null). Sin esto, la SPA era la única que
+  -- limitaba los horarios y una llamada directa al RPC reservaba a cualquier hora.
+  -- day_of_week usa 0 = domingo, igual que extract(dow) y Date.getDay().
+  v_has_own_hours := exists (
+    select 1 from public.business_hours h
+    where h.tenant_id = v_tenant.id
+      and h.staff_id = p_staff_id
+      and h.active
+  );
+  if v_starts_local::date <> v_ends_local::date
+    or not exists (
+      select 1 from public.business_hours h
+      where h.tenant_id = v_tenant.id
+        and h.active
+        and h.day_of_week = extract(dow from v_starts_local)::int
+        and (
+          (v_has_own_hours and h.staff_id = p_staff_id)
+          or (not v_has_own_hours and h.staff_id is null)
+        )
+        and h.opens <= v_starts_local::time
+        and h.closes >= v_ends_local::time
+    ) then
+    raise exception 'Ese horario está fuera del horario de atención. Elegí otro.' using errcode = 'P0001';
   end if;
 
   -- Cliente: reuso por email si viene, si no por teléfono; si no existe, insert.

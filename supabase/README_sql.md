@@ -129,6 +129,8 @@ Con `@supabase/supabase-js` (cliente básico, anon key, sin service role):
   como jsonb `{name, phone, email}`. Convención de horarios: enviar `p_starts_at`
   con la hora local del negocio marcada como UTC (sufijo `Z`), ej. `2026-09-15T14:30:00Z`.
   Opcionalmente `p_receipt_path` con la ruta en `comprobantes/<slug>/...` subida con anon.
+  Rechaza turnos fuera de `business_hours`: si el profesional tiene horarios propios
+  valen solo esos; si no, los del negocio (misma regla que `BookingWizard`).
 - **Subida de comprobante (reserva pública, sin sesión):** con la anon key al bucket
   privado `comprobantes`, siempre con path `comprobantes/<tenant_slug>/<archivo>`.
 - **Panel (owner/staff autenticado):** `select/insert/update` directos sobre las
