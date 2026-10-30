@@ -116,7 +116,9 @@ export default function AbonarForm(props: AbonarFormProps) {
           Pagá con Mercado Pago y el Pro se activa al instante, o transferí y subí el
           comprobante.
           {props.currentPeriodEnd &&
-            ` Tu período actual venció el ${new Date(props.currentPeriodEnd).toLocaleDateString("es-AR")}.`}
+            ` Tu período actual ${
+              new Date(props.currentPeriodEnd).getTime() > Date.now() ? "vence" : "venció"
+            } el ${new Date(props.currentPeriodEnd).toLocaleDateString("es-AR")}.`}
         </p>
 
         <div className="mt-6 rounded-2xl bg-indigo-50 p-4">

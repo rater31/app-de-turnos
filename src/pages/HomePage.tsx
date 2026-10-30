@@ -640,7 +640,10 @@ function Planes({ planPrice }: { planPrice: string }) {
   const planes = buildPlanes(planPrice);
 
   return (
-    <section id="planes" className="bg-fondo py-20 sm:py-28">
+    // overflow-x-clip: la luz difusa de la tarjeta Pro sobresale a la derecha y
+    // en celular estiraba la página (scroll horizontal). La tarjeta no puede
+    // recortarse sola porque el sello "Recomendado" asoma por arriba.
+    <section id="planes" className="overflow-x-clip bg-fondo py-20 sm:py-28">
       <div className="mx-auto max-w-7xl px-4 sm:px-6">
         <FadeIn className="mx-auto max-w-2xl text-center">
           <span className="text-[9px] font-semibold uppercase tracking-[0.2em] text-marca">
@@ -659,7 +662,7 @@ function Planes({ planPrice }: { planPrice: string }) {
             <FadeIn key={plan.nombre} delay={i * 0.12}>
               <div
                 className={[
-                  "relative flex h-full flex-col rounded-[28px] p-8 transition-all duration-300",
+                  "relative flex h-full flex-col rounded-[28px] p-6 transition-all duration-300 sm:p-8",
                   plan.featured
                     ? "border border-indigo-400/25 bg-noche text-white shadow-2xl shadow-indigo-900/20"
                     : "border border-borde bg-white shadow-sm",

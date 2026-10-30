@@ -24,8 +24,8 @@ export default function AdminPage() {
   }, []);
 
   return (
-    <main className="min-h-screen bg-slate-50">
-      <div className="mx-auto max-w-5xl px-4 py-10">
+    <div>
+      <div className="mx-auto max-w-5xl">
         <h1 className="text-2xl font-bold tracking-tight text-slate-900">
           Panel maestro
         </h1>
@@ -35,28 +35,28 @@ export default function AdminPage() {
 
         {stats ? (
           <div className="mt-8 grid grid-cols-2 gap-4 sm:grid-cols-4">
-            <div className="rounded-2xl border border-slate-200 bg-white p-5">
+            <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
               <p className="text-sm text-slate-500">Negocios</p>
-              <p className="mt-1 text-3xl font-bold text-slate-900">{stats.tenants.total}</p>
+              <p className="mt-1 text-2xl font-bold text-slate-900 sm:text-3xl">{stats.tenants.total}</p>
               <p className="mt-1 text-xs text-slate-400">
                 {stats.tenants.active} activos · {stats.tenants.inactive} inactivos
               </p>
             </div>
-            <div className="rounded-2xl border border-slate-200 bg-white p-5">
+            <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
               <p className="text-sm text-slate-500">Usuarios</p>
-              <p className="mt-1 text-3xl font-bold text-slate-900">{stats.users.total}</p>
+              <p className="mt-1 text-2xl font-bold text-slate-900 sm:text-3xl">{stats.users.total}</p>
               <p className="mt-1 text-xs text-slate-400">
                 {stats.users.owners} dueños · {stats.users.superadmins} admins
               </p>
             </div>
-            <div className="rounded-2xl border border-slate-200 bg-white p-5">
+            <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
               <p className="text-sm text-slate-500">Ingresos (suscripciones)</p>
-              <p className="mt-1 text-3xl font-bold text-slate-900">${stats.revenue.month.toLocaleString()}</p>
+              <p className="mt-1 text-2xl font-bold text-slate-900 sm:text-3xl">${stats.revenue.month.toLocaleString()}</p>
               <p className="mt-1 text-xs text-slate-400">${stats.revenue.total.toLocaleString()} total</p>
             </div>
-            <div className="rounded-2xl border border-slate-200 bg-white p-5">
+            <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
               <p className="text-sm text-slate-500">Pagos de plan pendientes</p>
-              <p className="mt-1 text-3xl font-bold text-slate-900">{stats.planPending}</p>
+              <p className="mt-1 text-2xl font-bold text-slate-900 sm:text-3xl">{stats.planPending}</p>
             </div>
           </div>
         ) : (
@@ -69,14 +69,14 @@ export default function AdminPage() {
         ) : tenants.length === 0 ? (
           <p className="text-sm text-slate-400">Todavía no hay negocios.</p>
         ) : (
-          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+          <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
             <table className="w-full text-left text-sm">
               <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
                 <tr>
                   <th className="px-4 py-3">Negocio</th>
                   <th className="px-4 py-3">Plan</th>
-                  <th className="px-4 py-3">Estado</th>
-                  <th className="px-4 py-3">Dueño</th>
+                  <th className="hidden px-4 py-3 sm:table-cell">Estado</th>
+                  <th className="hidden px-4 py-3 md:table-cell">Dueño</th>
                   <th className="px-4 py-3 text-right">Turnos</th>
                 </tr>
               </thead>
@@ -88,8 +88,8 @@ export default function AdminPage() {
                       <span className="block text-xs font-normal text-slate-400">/{t.slug}</span>
                     </td>
                     <td className="px-4 py-3">{t.plan}</td>
-                    <td className="px-4 py-3">{t.status}</td>
-                    <td className="px-4 py-3 text-slate-600">{t.ownerName || t.owner || "—"}</td>
+                    <td className="hidden px-4 py-3 sm:table-cell">{t.status}</td>
+                    <td className="hidden px-4 py-3 text-slate-600 md:table-cell">{t.ownerName || t.owner || "—"}</td>
                     <td className="px-4 py-3 text-right text-slate-600">{t.counts.bookings}</td>
                   </tr>
                 ))}
@@ -103,6 +103,6 @@ export default function AdminPage() {
           negocio) se integra en un próximo job.
         </p>
       </div>
-    </main>
+    </div>
   );
 }
